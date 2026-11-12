@@ -1,0 +1,63 @@
+[project]
+name = "sim-cloud"
+version = "0.1.0"
+description = "Autonomous-driving simulation cloud platform"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.32,<1",
+  "pydantic>=2.9,<3",
+  "pydantic-settings>=2.6,<3",
+  "sqlalchemy[asyncio]>=2.0.36,<3",
+  "asyncpg>=0.30,<1",
+  "psycopg[binary]>=3.2,<4",
+  "aiosqlite>=0.20,<1",
+  "jsonschema>=4.23,<5",
+  "python-multipart>=0.0.17,<1",
+  "httpx>=0.28,<1",
+  "orjson>=3.10,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "pytest-cov>=6,<7",
+  "ruff>=0.8,<1",
+  "mypy>=1.13,<2",
+  "types-jsonschema>=4.23,<5",
+]
+archive = ["pyarrow>=18,<20"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["backend", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["E501", "B008", "RUF001", "RUF002", "RUF003", "SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/**" = ["S101"]
+"scripts/**" = ["T201"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+files = ["backend"]
+exclude = ["backend/tests"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = ["backend/tests/*"]

@@ -1,0 +1,46 @@
+{
+  "round": "001",
+  "date": "2026-11-12",
+  "pytest": {"passed": 29, "failed": 0, "skipped": 0, "database": "postgresql:sim_test"},
+  "large_scale": {
+    "cases": 10000,
+    "distinct_scenarios": 10000,
+    "expand_cursor_offset": 10000,
+    "expand_batch": 1000,
+    "elapsed_sec": 11.11,
+    "case_page_size": 500,
+    "page1": 500,
+    "page2": 500
+  },
+  "smoke": {
+    "ok": true,
+    "scenario_cursor": true,
+    "case_cursor_no_overlap": true,
+    "playback_seek_ms": 6.5,
+    "playback_under_500ms": true,
+    "sample_summary": "任务「异步展开压测任务」共 520 个用例，执行成功 520 个，指标通过 423 个，通过率 81.35%。"
+  },
+  "frontend": {
+    "build": "passed",
+    "js_kb": 216.33,
+    "js_gzip_kb": 68.9,
+    "css_kb": 13.39,
+    "spa_routes": [200, 200, 200, 200]
+  },
+  "constraints": {
+    "all_python_files_lte_400": true,
+    "all_python_functions_lte_50": true,
+    "all_frontend_files_lte_200": true,
+    "compileall": "passed",
+    "todo_fixme": 0
+  },
+  "static": {
+    "ruff": "passed",
+    "mypy": "passed (strict, backend/tests excluded)",
+    "compileall": "passed"
+  },
+  "not_executed": [
+    "partition detach/parquet export job: deferred",
+    "300k historical case load test: deferred"
+  ]
+}

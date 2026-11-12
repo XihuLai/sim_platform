@@ -1,0 +1,79 @@
+import { useEffect, useState } from "react";
+import { NavLink, Outlet } from "react-router-dom";
+import { api } from "../api";
+import { useAsync } from "../hooks";
+import { formatTime } from "./ui";
+
+const NAV = [
+  { to: "/scenarios", label: "场景列表", icon: "▤" },
+  { to: "/scenarios/new", label: "场景创建", icon: "＋" },
+  { to: "/metrics", label: "Metric 管理", icon: "◈" },
+  { to: "/sets", label: "场景集", icon: "▦" },
+  { to: "/tasks/new", label: "发起仿真", icon: "▶" },
+  { to: "/tasks", label: "任务列表", icon: "☰" },
+  { to: "/queue", label: "队列看板", icon: "◷" },
+  { to: "/playback", label: "数据播放", icon: "◉" }
+];
+
+export function Layout() {
+  const [project, setProject] = useState(localStorage.getItem("sim.project") || "default");
+  const overview = useAsync(() => api.overview(), [project]);
+  const stats = overview.data;
+
+  useEffect(() => {
+    localStorage.setItem("sim.project", project);
+  }, [project]);
+
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="logo">S</span>
+          <div>
+            <strong>SimCloud</strong>
+            <small>自动驾驶仿真云</small>
+          </div>
+        </div>
+        <nav>
+          {NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.to === "/tasks"}>
+              <i>{item.icon}</i>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="side-foot">
+          <label>
+            项目
+            <input value={project} onChange={(event) => setProject(event.target.value || "default")} />
+          </label>
+          <small>最近刷新 {formatTime(stats ? new Date().toISOString() : null)}</small>
+        </div>
+      </aside>
+      <div className="main">
+        <header className="topbar">
+          <div className="kpis">
+            <Kpi label="场景" value={stats ? String(stats.scenarios) : "—"} />
+            <Kpi label="任务" value={stats ? String(stats.tasks.reduce((sum, row) => sum + row.tasks, 0)) : "—"} />
+            <Kpi label="通过率" value={stats ? `${stats.pass_rate}%` : "—"} tone="pass" />
+            <Kpi label="队列深度" value={stats ? String(stats.queue_depth) : "—"} tone="queue" />
+            <Kpi label="运行中" value={stats ? String(stats.running_cases) : "—"} tone="running" />
+          </div>
+          <span className={`health ${overview.error ? "down" : "up"}`}>{overview.error ? "服务异常" : "服务正常"}</span>
+        </header>
+        <main className="content">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ label, value, tone = "" }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className={`kpi ${tone}`}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}

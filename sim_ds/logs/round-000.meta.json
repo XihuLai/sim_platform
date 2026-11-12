@@ -1,0 +1,10 @@
+{
+  "round": 0,
+  "start": null,
+  "end": null,
+  "total_entries": 0,
+  "written_entries": 0,
+  "dropped": 0,
+  "truncated": false,
+  "top_errors": []
+}

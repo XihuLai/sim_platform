@@ -1,0 +1,45 @@
+{
+  "round": "001",
+  "generated_at": "2026-11-12T11:55:40+08:00",
+  "project": "sim_ds",
+  "status": "passed",
+  "commands": [
+    {"cmd": "PYTHONPATH=. .venv/bin/python scripts/migrate.py --reset", "result": "5+1 migrations applied"},
+    {"cmd": "PYTHONPATH=. .venv/bin/python scripts/seed.py --reset", "result": "18 scenarios, 3 sets, 2 completed tasks"},
+    {"cmd": "PYTHONPATH=. .venv/bin/python scripts/seed.py --large 520", "result": "520-case async task queued/executed"},
+    {"cmd": "PYTHONPATH=. .venv/bin/python -m pytest --disable-warnings -q", "result": "29 passed"},
+    {"cmd": "PYTHONPATH=. .venv/bin/python scripts/smoke.py --base http://127.0.0.1:8099", "result": "all checks ok"},
+    {"cmd": "cd frontend/app && npm run build", "result": "success"},
+    {"cmd": "python -m compileall -q backend scripts", "result": "success"},
+    {"cmd": ".venv/bin/ruff check backend scripts", "result": "passed"},
+    {"cmd": ".venv/bin/mypy backend", "result": "passed"}
+  ],
+  "tests": {"passed": 29, "failed": 0, "skipped": 0},
+  "smoke": {
+    "health": true,
+    "scenario_cursor": true,
+    "case_cursor": true,
+    "summary": true,
+    "playback_seek_ms": 6.5,
+    "playback_under_500ms": true
+  },
+  "scale": {
+    "cases": 10000,
+    "distinct_scenarios": 10000,
+    "expand_cursor_offset": 10000,
+    "elapsed_sec": 11.11
+  },
+  "artifacts": {
+    "backend_files": 61,
+    "migrations": 6,
+    "frontend_pages": 10,
+    "frontend_dist_js_kb": 216.33,
+    "frontend_dist_css_kb": 13.39
+  },
+  "limitations": [
+    "partition detach/export job and 300k historical load test deferred",
+    "K8s executor and real mcap/bag adapters are replacement points"
+  ],
+  "log_size_guard_bytes": 1048576,
+  "log_size_bytes": 1738
+}

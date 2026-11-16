@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import metrics, playback, scenarios, sets, system, tasks
+from backend.api import auth, metrics, playback, scenarios, sets, system, tasks, users
 from backend.api.errors import install_handlers
 from backend.playback.service import PlaybackService
 from backend.scenario.metrics_service import MetricService
@@ -27,7 +27,16 @@ from backend.sim.scheduler import Scheduler
 from backend.sim.service import TaskService
 
 LOG = logging.getLogger("sim.app")
-ROUTERS = (system.router, scenarios.router, sets.router, metrics.router, tasks.router, playback.router)
+ROUTERS = (
+    system.router,
+    auth.router,
+    users.router,
+    scenarios.router,
+    sets.router,
+    metrics.router,
+    tasks.router,
+    playback.router,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -74,7 +83,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for router in ROUTERS:
         app.include_router(router, prefix="/api")
 
-    _mount_frontend(app, config)
+    if config.serve_frontend:
+        _mount_frontend(app, config)
     return app
 
 

@@ -184,9 +184,7 @@ async def make_scenarios(
                     "log_id": source_id,
                     "log_uri": "",
                     "log_checksum": "sha256:demo",
-                    "format": "mcap",
-                    "extract": {"clip_start_ts": 0, "clip_end_ts": 180000},
-                    "channels": ["camera_front", "lidar_top", "can"],
+                    "format": "rsclbag",
                 },
                 time_window={"start_ts": 0, "end_ts": 180000, "trigger_ts": 60000},
                 metrics=[

@@ -21,6 +21,7 @@ def build_snapshot(
     owner: str,
     members: list[dict[str, Any]],
     frozen: bool,
+    visibility: str = "private",
 ) -> dict[str, Any]:
     base = {
         "set_id": set_id,
@@ -30,6 +31,7 @@ def build_snapshot(
         "frozen": frozen,
         "owner": owner,
         "project": project,
+        "visibility": visibility,
         "members": members,
     }
     if len(members) <= SHARD_SIZE:

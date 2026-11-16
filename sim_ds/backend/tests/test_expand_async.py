@@ -30,6 +30,15 @@ async def insert_scenarios(db: Database, count: int, project: str = "default") -
         """,
         rows,
     )
+    await db.executemany(
+        """
+        INSERT INTO scenario_version(scenario_id,version,file_uri,file_checksum,publish_state,
+          expected_version,change_note,created_by)
+        VALUES (:id,1,:uri,:sha,'published',0,'test','test')
+        ON CONFLICT DO NOTHING
+        """,
+        rows,
+    )
     return ids
 
 

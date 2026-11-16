@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.domain.models import ScenarioCreate, ScenarioUpdate
 from backend.scenario.common import ensure_version_payload, row_time, scenario_uri
 from backend.scenario.scenario_support import ScenarioSupport
+from backend.scenario.tag_expr import build_tag_sql, parse_tag_expr
 from backend.shared.auth import Principal, audit
 from backend.shared.canonical import sha256_json, utcnow
 from backend.shared.db import Database, affected, dumps
@@ -30,6 +31,9 @@ class ScenarioService(ScenarioSupport):
         *,
         search: str = "",
         tag: str = "",
+        tags: list[str] | None = None,
+        tag_expr: str = "",
+        tag_mode: str = "or",
         status: str = "active",
         cursor: str | None = None,
         page_size: int = 50,
@@ -42,12 +46,26 @@ class ScenarioService(ScenarioSupport):
             params["status"] = status
         if search:
             clauses.append("(s.name ILIKE :search OR s.id ILIKE :search)")
-        if tag:
-            clauses.append(
-                "EXISTS (SELECT 1 FROM scenario_tag st JOIN tag t ON t.id=st.tag_id "
-                "WHERE st.scenario_id=s.id AND t.name=:tag)"
-            )
-            params["tag"] = tag
+        if tag_expr.strip():
+            clauses.append(build_tag_sql(parse_tag_expr(tag_expr), params))
+        else:
+            selected_tags = [item.strip() for item in (tags or []) if item.strip()]
+            if tag.strip() and tag.strip() not in selected_tags:
+                selected_tags.append(tag.strip())
+            if selected_tags:
+                params["tag_filter"] = self.db.text_array(selected_tags)
+                if tag_mode == "and":
+                    clauses.append(
+                        "(SELECT COUNT(DISTINCT t2.name) FROM scenario_tag st2 "
+                        "JOIN tag t2 ON t2.id=st2.tag_id WHERE st2.scenario_id=s.id "
+                        "AND t2.name = ANY(CAST(:tag_filter AS TEXT[]))) = :tag_count"
+                    )
+                    params["tag_count"] = len(selected_tags)
+                else:
+                    clauses.append(
+                        "EXISTS (SELECT 1 FROM scenario_tag st2 JOIN tag t2 ON t2.id=st2.tag_id "
+                        "WHERE st2.scenario_id=s.id AND t2.name = ANY(CAST(:tag_filter AS TEXT[])))"
+                    )
         if cursor:
             parts = _cursor_parts(cursor)
             clauses.append("(s.created_at, s.id) < (to_timestamp(:ct), :cid)")
@@ -73,6 +91,23 @@ class ScenarioService(ScenarioSupport):
             next_cursor = _encode_time_cursor(last["created_at"], last["id"])
         return {"items": items, "next_cursor": next_cursor}
 
+    async def tags(self, principal: Principal, *, search: str = "", page_size: int = 200) -> list[dict[str, Any]]:
+        size = max(1, min(page_size, 500))
+        rows = await self.db.fetch_all(
+            """
+            SELECT t.id, t.name, t.category, COUNT(DISTINCT st.scenario_id) AS usage
+            FROM tag t
+            JOIN scenario_tag st ON st.tag_id=t.id
+            JOIN scenario s ON s.id=st.scenario_id
+            WHERE s.project=:project AND t.name ILIKE :search
+            GROUP BY t.id, t.name, t.category
+            ORDER BY usage DESC, t.name
+            LIMIT :limit
+            """,
+            {"project": principal.project, "search": f"%{search}%", "limit": size},
+        )
+        return rows
+
     async def get(self, scenario_id: str, principal: Principal, version: int | None = None) -> dict[str, Any]:
         row = await self._scenario_row(scenario_id, principal.project)
         target = version or int(row["current_version"])
@@ -86,6 +121,10 @@ class ScenarioService(ScenarioSupport):
         except AppError:
             await self.mark_unavailable(scenario_id, target)
             raise
+        if isinstance(payload.get("source"), dict):
+            payload["source"].pop("extract", None)
+        payload["id"] = scenario_id
+        payload["scenario_id"] = scenario_id
         payload["tags"] = await self._scenario_tags(scenario_id)
         payload["status"] = row["status"]
         payload["file_checksum"] = vrow["file_checksum"]

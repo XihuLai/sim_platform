@@ -85,12 +85,15 @@ async def cancel_task(
 async def list_cases(
     task_id: str,
     status: str = "",
+    outcome: str = "",
     cursor: str | None = None,
     page_size: int = Query(default=100, ge=1, le=500),
     principal: Principal = Depends(get_principal),
     service: TaskService = Depends(get_tasks),
 ) -> dict[str, Any]:
-    return await service.cases(task_id, principal, status=status, cursor=cursor, page_size=page_size)
+    return await service.cases(
+        task_id, principal, status=status, outcome=outcome, cursor=cursor, page_size=page_size
+    )
 
 
 @router.get("/tasks/{task_id}/cases/archive", response_model=dict[str, Any])

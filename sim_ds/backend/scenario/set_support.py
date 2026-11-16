@@ -60,8 +60,14 @@ class SetSupport:
             )
             await session.execute(
                 text(
-                    "UPDATE scenario_set SET current_version=GREATEST(current_version,:ver), frozen=:frozen WHERE id=:sid"
+                    "UPDATE scenario_set SET current_version=GREATEST(current_version,:ver), frozen=:frozen, "
+                    "visibility=COALESCE(:visibility, visibility) WHERE id=:sid"
                 ),
-                {"sid": row["set_id"], "ver": row["version"], "frozen": frozen},
+                {
+                    "sid": row["set_id"],
+                    "ver": row["version"],
+                    "frozen": frozen,
+                    "visibility": payload.get("visibility"),
+                },
             )
             await session.commit()

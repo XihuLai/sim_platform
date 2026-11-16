@@ -102,7 +102,14 @@ export function TaskSubmit() {
           </Card>
           <Card>
             <h2>RuntimeConfig</h2>
-            <TextField label="Binary ID" value={binary} onChange={setBinary} />
+            <label className="field">
+              <span>Binary ID</span>
+              <select value={binary} onChange={(event) => setBinary(event.target.value)}>
+                <option value="log-resim">log-resim（内置确定性引擎）</option>
+                <option value="mock">mock（tools/mock/run_task.py）</option>
+                <option value="sim_engine">sim_engine</option>
+              </select>
+            </label>
             <label className="field">
               <span>Args（每行一个，支持模板变量）</span>
               <textarea rows={4} value={args} onChange={(event) => setArgs(event.target.value)} />

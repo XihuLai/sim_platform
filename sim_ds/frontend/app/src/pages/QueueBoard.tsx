@@ -1,7 +1,7 @@
 import { api } from "../api";
 import { useAsync, useInterval } from "../hooks";
 import { BarChart, Donut } from "../components/Charts";
-import { Card, DataState, PageHeader, PriorityBadge, formatTime } from "../components/ui";
+import { Card, DataState, PageHeader, PriorityBadge, formatTime, statusLabel } from "../components/ui";
 
 export function QueueBoard() {
   const queue = useAsync(() => api.tasks.queue(), []);
@@ -21,11 +21,11 @@ export function QueueBoard() {
             <div className="big-number">{overview.data?.queue_depth ?? "—"}</div>
             <p className="muted">等待中 {overview.data?.queue_depth ?? 0} · 运行中 {overview.data?.running_cases ?? 0}</p>
             <h3>按状态</h3>
-            <BarChart items={queue.data?.by_status.map((row) => ({ key: row.status, value: row.tasks, label: row.status })) || []} unit=" 任务" />
+            <BarChart items={queue.data?.by_status.map((row) => ({ key: row.status, value: row.tasks, label: statusLabel(row.status) })) || []} unit=" 任务" />
           </Card>
           <Card>
             <h2>状态分布</h2>
-            <Donut items={queue.data?.by_status.map((row) => ({ key: row.status, value: row.total_cases, label: row.status })) || []} centerLabel="cases" />
+            <Donut items={queue.data?.by_status.map((row) => ({ key: row.status, value: row.total_cases, label: statusLabel(row.status) })) || []} centerLabel="cases" />
           </Card>
           <Card>
             <h2>优先级等待</h2>

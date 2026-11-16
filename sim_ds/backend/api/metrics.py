@@ -17,6 +17,11 @@ router = APIRouter(tags=["metrics"])
 FIXED_CATEGORIES = ("comfort", "compliance", "safety", "efficiency", "navigation")
 
 
+def _require_admin(principal: Principal) -> None:
+    if not principal.admin:
+        raise AppError("FORBIDDEN", "需要管理员权限才能修改 Metric 配置", status=403)
+
+
 @router.get("/metrics/categories", response_model=dict[str, Any])
 async def list_categories(service: MetricService = Depends(get_metrics)) -> dict[str, Any]:
     return {"items": await service.categories()}
@@ -34,6 +39,7 @@ async def update_category(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.update_category(category_id, body, principal)
 
 
@@ -55,6 +61,7 @@ async def create_type(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.create_type(body, principal)
 
 
@@ -65,6 +72,7 @@ async def update_type(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.update_type(type_id, body, principal)
 
 
@@ -74,6 +82,7 @@ async def delete_type(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.delete_type(type_id, principal)
 
 
@@ -90,6 +99,7 @@ async def create_template(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.create_template(body, principal)
 
 
@@ -100,6 +110,7 @@ async def update_template(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.update_template(template_id, body, principal)
 
 
@@ -109,6 +120,7 @@ async def delete_template(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.delete_template(template_id, principal)
 
 
@@ -134,6 +146,7 @@ async def create_def(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.create_def(body, principal)
 
 
@@ -144,6 +157,7 @@ async def update_def(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.update_def(def_id, body, principal)
 
 
@@ -153,4 +167,5 @@ async def delete_def(
     principal: Principal = Depends(get_principal),
     service: MetricService = Depends(get_metrics),
 ) -> dict[str, Any]:
+    _require_admin(principal)
     return await service.delete_def(def_id, principal)

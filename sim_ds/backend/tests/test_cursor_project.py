@@ -7,7 +7,7 @@ from backend.shared.auth import Principal
 from backend.shared.db import Database
 from backend.shared.errors import AppError
 from backend.shared.files import FileStore
-from backend.tests.helpers import make_scenario, seed_metric, set_payload
+from backend.tests.helpers import make_scenario, scenario_payload, seed_metric, set_payload
 
 
 async def test_scenario_cursor_has_no_overlap(db: Database, tmp_path: Path, principal: Principal) -> None:
@@ -54,3 +54,47 @@ async def test_other_project_cannot_read_scenario_or_set(
     with pytest.raises(AppError) as set_error:
         await sets.get(set_info["set_id"], other)
     assert set_error.value.status == 404
+
+
+async def test_multi_tag_and_or_filter(db: Database, tmp_path: Path, principal: Principal) -> None:
+    await seed_metric(db)
+    service = ScenarioService(db, FileStore(tmp_path))
+    first = scenario_payload("多标签-A")
+    first.tags = ["cut-in", "rain"]
+    second = scenario_payload("多标签-B")
+    second.tags = ["rain", "night"]
+    created_first = await service.create(first, principal)
+    created_second = await service.create(second, principal)
+
+    and_result = await service.list_items(principal, tags=["cut-in", "rain"], tag_mode="and")
+    assert [item["id"] for item in and_result["items"]] == [created_first["id"]]
+
+    or_result = await service.list_items(principal, tags=["cut-in", "night"], tag_mode="or")
+    assert {item["id"] for item in or_result["items"]} == {
+        created_first["id"],
+        created_second["id"],
+    }
+
+
+async def test_tag_expression_with_three_tags(db: Database, tmp_path: Path, principal: Principal) -> None:
+    await seed_metric(db)
+    service = ScenarioService(db, FileStore(tmp_path))
+    ids: dict[str, str] = {}
+    for name, tags in [
+        ("AB", ["A", "B"]),
+        ("C", ["C"]),
+        ("A", ["A"]),
+        ("BC", ["B", "C"]),
+    ]:
+        payload = scenario_payload(f"表达式-{name}")
+        payload.tags = tags
+        ids[name] = (await service.create(payload, principal))["id"]
+
+    result = await service.list_items(principal, tag_expr="A&B|C")
+    found = {item["id"] for item in result["items"]}
+    assert found == {ids["AB"], ids["C"], ids["BC"]}
+    assert ids["A"] not in found
+
+    with pytest.raises(AppError) as exc:
+        await service.list_items(principal, tag_expr="A&")
+    assert exc.value.code == "INVALID_TAG_EXPR"

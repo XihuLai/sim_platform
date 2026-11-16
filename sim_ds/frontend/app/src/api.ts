@@ -11,10 +11,13 @@ import type {
   ScenarioDetail,
   SetMember,
   SetSummary,
+  TagOption,
   Task,
   TaskSummary,
-  CaseRun
+  CaseRun,
+  UserAccount
 } from "./types";
+import { clearSession, getToken, type CurrentUser } from "./auth";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -39,7 +42,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   for (const [key, value] of Object.entries(projectHeader())) headers.set(key, value);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(BASE + path, { ...init, headers });
+  if (response.status === 401 && !path.startsWith("/auth/login")) {
+    clearSession();
+    if (window.location.pathname !== "/login") window.location.href = "/login";
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(
@@ -52,11 +61,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-function query(params: Record<string, string | number | boolean | undefined | null>): string {
+function query(params: Record<string, string | number | boolean | string[] | undefined | null>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") {
-      search.set(key === "size" ? "page_size" : key, String(value));
+    if (value === undefined || value === null || value === "") continue;
+    const name = key === "size" ? "page_size" : key;
+    if (Array.isArray(value)) {
+      for (const item of value) search.append(name, item);
+    } else {
+      search.set(name, String(value));
     }
   }
   const text = search.toString();
@@ -66,13 +79,43 @@ function query(params: Record<string, string | number | boolean | undefined | nu
 type Json = Record<string, unknown>;
 
 export const api = {
+  auth: {
+    login: (username: string, password: string) =>
+      request<{ token: string; expires_at: string; user: CurrentUser }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password })
+      }),
+    me: () => request<CurrentUser>("/auth/me"),
+    logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" })
+  },
+
+  users: {
+    list: () => request<{ items: UserAccount[] }>("/users"),
+    create: (body: Json) => request<UserAccount>("/users", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: Json) =>
+      request<UserAccount>(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) })
+  },
+
   health: () => request<{ status: string }>("/health"),
   overview: () => request<Overview>("/stats/overview"),
   audit: (cursor?: string) => request<Page<Json>>(`/audit${query({ cursor })}`),
 
+  tags: {
+    list: (params: { search?: string; size?: number }) =>
+      request<{ items: TagOption[] }>(`/tags${query(params)}`)
+  },
+
   scenarios: {
-    list: (params: { search?: string; tag?: string; status?: string; cursor?: string; size?: number }) =>
-      request<Page<Scenario>>(`/scenarios${query(params)}`),
+    list: (params: {
+      search?: string;
+      tag?: string;
+      tags?: string[];
+      tag_expr?: string;
+      tag_mode?: "and" | "or";
+      status?: string;
+      cursor?: string;
+      size?: number;
+    }) => request<Page<Scenario>>(`/scenarios${query(params)}`),
     get: (id: string) => request<ScenarioDetail>(`/scenarios/${id}`),
     create: (body: Json) => request<ScenarioDetail>("/scenarios", { method: "POST", body: JSON.stringify(body) }),
     update: (id: string, body: Json) =>
@@ -82,8 +125,12 @@ export const api = {
   },
 
   sets: {
-    list: (params: { frozen?: boolean; cursor?: string; size?: number }) =>
-      request<Page<SetSummary>>(`/sets${query(params)}`),
+    list: (params: {
+      frozen?: boolean;
+      visibility?: "private" | "public";
+      cursor?: string;
+      size?: number;
+    }) => request<Page<SetSummary>>(`/sets${query(params)}`),
     get: (id: string) => request<SetSummary>(`/sets/${id}`),
     create: (body: Json) => request<SetSummary>("/sets", { method: "POST", body: JSON.stringify(body) }),
     update: (id: string, body: Json) =>
@@ -101,6 +148,11 @@ export const api = {
     categories: () => request<{ items: Json[] }>("/metrics/categories"),
     types: () => request<{ items: MetricType[] }>("/metrics/types"),
     defs: () => request<{ items: MetricDef[] }>("/metrics/defs"),
+    createDef: (body: Json) => request<MetricDef>("/metrics/defs", { method: "POST", body: JSON.stringify(body) }),
+    updateDef: (id: string, body: Json) =>
+      request<MetricDef>(`/metrics/defs/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    deleteDef: (id: string) =>
+      request<{ id: string; status: string }>(`/metrics/defs/${id}`, { method: "DELETE" }),
     templates: () => request<{ items: MetricTemplate[] }>("/metrics/templates")
   },
 
@@ -109,7 +161,7 @@ export const api = {
       request<Page<Task>>(`/tasks${query(params)}`),
     get: (id: string) => request<Task>(`/tasks/${id}`),
     submit: (body: Json) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(body) }),
-    cases: (id: string, params: { status?: string; cursor?: string; size?: number }) =>
+    cases: (id: string, params: { status?: string; outcome?: string; cursor?: string; size?: number }) =>
       request<{ items: CaseRun[]; next_cursor: string | null }>(`/tasks/${id}/cases${query(params)}`),
     summary: (id: string) => request<TaskSummary>(`/tasks/${id}/summary`),
     control: (id: string, command: "pause" | "resume" | "cancel", requestId: string, reason = "") =>

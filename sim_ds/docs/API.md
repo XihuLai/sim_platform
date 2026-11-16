@@ -13,24 +13,39 @@
 { "items": [], "next_cursor": "base64..." }
 ```
 
+## 账号与权限
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/auth/login` | 用户名/密码登录，返回 Bearer token 与当前账号 |
+| GET | `/auth/me` | 当前账号、角色、最高优先级与资源额度 |
+| POST | `/auth/logout` | 注销当前会话 |
+| GET | `/users` | 管理员查看账号列表 |
+| POST | `/users` | 管理员创建账号并配置优先级/额度 |
+| PUT | `/users/{id}` | 管理员修改角色、状态、密码与额度 |
+
+生产环境可使用数据库账号会话；`SIM_API_TOKENS` 静态 token 仍兼容。登录成功后前端使用
+`Authorization: Bearer <token>`。
+
 ## 场景
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/scenarios?search&tag&status&cursor&page_size` | 场景列表，按 `(created_at,id)` 倒序 |
+| GET | `/scenarios?search&tag&tags&tag_mode&tag_expr&status&cursor&page_size` | 场景列表；`tag_expr` 支持 `A&B\|C` 与括号 |
 | POST | `/scenarios` | 创建并发布 v1 |
 | GET | `/scenarios/{id}?version=` | 读已发布版本文件并校验 checksum |
 | PUT | `/scenarios/{id}` | 基于 `version` 创建新版本，冲突返回 409 |
 | DELETE | `/scenarios/{id}?hard=` | 归档；硬删检查冻结 Set 引用 |
 | GET | `/scenarios/{id}/versions` | 版本历史与发布状态 |
 | GET | `/metrics/templates/{id}/scenarios` | 按 template_id 反查场景 |
+| GET | `/tags?search&page_size` | 当前项目已有标签（含使用次数），用于标签下拉框 |
 
 创建示例：
 
 ```json
 {
   "name": "城市路口-001",
-  "source": { "type": "record", "log_id": "src_...", "format": "mcap" },
+  "source": { "type": "record", "log_id": "src_...", "format": "rsclbag" },
   "time_window": { "start_ts": 0, "end_ts": 180000, "trigger_ts": 60000 },
   "metrics": [{
     "metric_def_id": "safety.brake.hard",
@@ -48,18 +63,32 @@
 }
 ```
 
+## 账号与权限
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/auth/login` | 用户名/密码登录，返回 Bearer token 与当前账号 |
+| GET | `/auth/me` | 当前账号、角色、最高优先级与资源额度 |
+| POST | `/auth/logout` | 注销当前会话 |
+| GET | `/users` | 管理员查看账号列表 |
+| POST | `/users` | 管理员创建账号并配置优先级/额度 |
+| PUT | `/users/{id}` | 管理员修改角色、状态、密码与额度 |
+
+生产环境可使用数据库账号会话；`SIM_API_TOKENS` 静态 token 仍兼容。登录成功后前端使用
+`Authorization: Bearer <token>`。
+
 ## 场景集
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/sets?frozen&cursor&page_size` | 场景集列表 |
+| GET | `/sets?frozen&visibility&cursor&page_size` | 场景集列表；`visibility=public/private` |
 | POST | `/sets` | 创建 v1 |
 | PUT | `/sets/{id}` | 更新未冻结集合 |
-| POST | `/sets/{id}/versions` | 创建新版本（同 PUT） |
+| POST | `/sets/{id}/versions` | 创建新版本（同 PUT）；支持 `visibility` |
 | POST | `/sets/{id}:freeze` | 基于当前版本创建冻结 v+1 |
 | POST | `/sets/{id}:derive` | 派生新集合 |
 | GET | `/sets/{id}` | 当前已发布快照 |
-| GET | `/sets/{id}/members?cursor&page_size` | 成员游标分页 |
+| GET | `/sets/{id}/members?cursor&page_size` | 成员游标分页，返回 `scenario_id/scenario_version/scenario_name` |
 
 冻结成员锁定 `scenario_version`；超过 2000 成员时快照写为
 `v{n}.meta.json + v{n}.members.{k}.json` 分片。
@@ -72,6 +101,8 @@
 | GET | `/metrics/defs/{id}?version=` |
 
 五层：固定分类 → 类型树 → 模板 `env_schema` → 定义 `(id,version)` → 场景实例 `config`。
+Metric 定义可直接携带 `trigger_functions` / `trigger_ops` / `functions` 规则 JSON；
+`trigger_templates` / `function_templates` 由其中的 `template_id` 自动派生。
 写入场景时执行结构校验 + 模板 JSON Schema 动态校验，错误为 `METRIC_CONFIG_INVALID`
 并返回 `detail.path` / `detail.reason`。
 
@@ -82,7 +113,7 @@
 | POST | `/tasks` | 提交任务；>500 cases 返回 202 + `expanding` |
 | GET | `/tasks?status&priority&search&cursor&page_size` | 任务列表（预聚合） |
 | GET | `/tasks/{id}` | 任务详情 |
-| GET | `/tasks/{id}/cases?status&cursor&page_size` | CaseRun 游标分页，≤500 |
+| GET | `/tasks/{id}/cases?status&outcome&cursor&page_size` | CaseRun 游标分页，≤500；`outcome=pass/fail` 按指标结果过滤 |
 | GET | `/tasks/{id}/cases/{cid}` | Case 下钻（DB 或归档层） |
 | GET | `/tasks/{id}/cases/archive?status&cursor&page_size` | Parquet 归档明细 |
 | GET | `/tasks/{id}/summary` | 文字结论、通过率、图表数据、失败清单 |

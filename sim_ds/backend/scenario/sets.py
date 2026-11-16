@@ -26,14 +26,26 @@ class SetService(SetSupport):
 
     # ---------------------------------------------------------------- reads
     async def list_items(
-        self, principal: Principal, *, frozen: bool | None = None, cursor: str | None = None, page_size: int = 50
+        self,
+        principal: Principal,
+        *,
+        frozen: bool | None = None,
+        visibility: str | None = None,
+        cursor: str | None = None,
+        page_size: int = 50,
     ) -> dict[str, Any]:
         size = max(1, min(page_size, 200))
         params: dict[str, Any] = {"project": principal.project, "limit": size + 1}
         clauses = ["s.project=:project"]
+        if not principal.admin:
+            clauses.append("(s.visibility='public' OR s.owner=:owner)")
+            params["owner"] = principal.user
         if frozen is not None:
             clauses.append("s.frozen=:frozen")
             params["frozen"] = frozen
+        if visibility:
+            clauses.append("s.visibility=:visibility")
+            params["visibility"] = visibility
         if cursor:
             parts = decode_cursor(cursor, 2)
             clauses.append("(s.created_at, s.id) < (to_timestamp(:ct), :cid)")
@@ -66,7 +78,7 @@ class SetService(SetSupport):
         return {"items": items, "next_cursor": next_cursor}
 
     async def get(self, set_id: str, principal: Principal) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._visible_set_row(set_id, principal)
         version = int(row["current_version"])
         vrow = await self._version_row(set_id, version)
         if vrow is None or vrow["publish_state"] != "published":
@@ -78,6 +90,7 @@ class SetService(SetSupport):
             "name": row["name"],
             "description": row["description"],
             "frozen": row["frozen"],
+            "visibility": row["visibility"],
             "owner": row["owner"],
             "project": row["project"],
             "member_count": vrow["member_count"],
@@ -98,21 +111,24 @@ class SetService(SetSupport):
         cursor: str | None = None,
         page_size: int = 200,
     ) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._visible_set_row(set_id, principal)
         target = version or int(row["current_version"])
         size = max(1, min(page_size, 500))
         params: dict[str, Any] = {"sid": set_id, "ver": target, "limit": size + 1}
-        clauses = ["set_id=:sid", "set_version=:ver"]
+        clauses = ["m.set_id=:sid", "m.set_version=:ver"]
         if cursor:
             parts = decode_cursor(cursor, 2)
-            clauses.append("(sort_order, scenario_id) > (:order, :scn)")
+            clauses.append("(m.sort_order, m.scenario_id) > (:order, :scn)")
             params["order"] = int(parts[0])
             params["scn"] = parts[1]
         rows = await self.db.fetch_all(
             f"""
-            SELECT scenario_id, scenario_version, sort_order FROM scenario_set_member
+            SELECT m.scenario_id, m.scenario_version, m.sort_order,
+                   s.name AS scenario_name, s.status AS scenario_status
+            FROM scenario_set_member m
+            LEFT JOIN scenario s ON s.id=m.scenario_id
             WHERE {' AND '.join(clauses)}
-            ORDER BY sort_order, scenario_id LIMIT :limit
+            ORDER BY m.sort_order, m.scenario_id LIMIT :limit
             """,
             params,
         )
@@ -127,7 +143,7 @@ class SetService(SetSupport):
     async def load_snapshot(
         self, set_id: str, version: int, principal: Principal, *, require_frozen: bool = True
     ) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._visible_set_row(set_id, principal)
         vrow = await self._version_row(set_id, version)
         if vrow is None or vrow["publish_state"] != "published":
             raise AppError("VERSION_UNAVAILABLE", "场景集版本未发布", status=409)
@@ -161,14 +177,14 @@ class SetService(SetSupport):
         members = await self._normalize_members(payload.members, project)
         if not members:
             raise AppError("EMPTY_SET", "场景集不能为空", status=422)
-        snapshot = build_snapshot(set_id, 1, payload.name, payload.description, project, principal.user, members, False)
+        snapshot = build_snapshot(set_id, 1, payload.name, payload.description, project, principal.user, members, False, payload.visibility)
         await self._insert_pending(set_id, project, principal, snapshot, expected=0)
         await self._publish_snapshot(snapshot)
-        await self._finish_publish(set_id, 1, snapshot, principal, frozen=False, expected=0)
+        await self._finish_publish(set_id, 1, snapshot, principal, frozen=False, expected=0, visibility=payload.visibility)
         return await self.get(set_id, principal)
 
     async def update(self, set_id: str, payload: SetUpdate, principal: Principal) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._editable_set_row(set_id, principal)
         if row["frozen"]:
             raise conflict("SET_FROZEN", "冻结场景集不可修改，请派生新场景集")
         current = int(row["current_version"])
@@ -178,14 +194,14 @@ class SetService(SetSupport):
         if not members:
             raise AppError("EMPTY_SET", "场景集不能为空", status=422)
         version = current + 1
-        snapshot = build_snapshot(set_id, version, payload.name, payload.description, row["project"], row["owner"], members, False)
+        snapshot = build_snapshot(set_id, version, payload.name, payload.description, row["project"], row["owner"], members, False, payload.visibility)
         await self._insert_pending(set_id, row["project"], principal, snapshot, expected=current)
         await self._publish_snapshot(snapshot)
-        await self._finish_publish(set_id, version, snapshot, principal, frozen=False, expected=current)
+        await self._finish_publish(set_id, version, snapshot, principal, frozen=False, expected=current, visibility=payload.visibility)
         return await self.get(set_id, principal)
 
     async def freeze(self, set_id: str, principal: Principal) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._editable_set_row(set_id, principal)
         if row["frozen"]:
             raise conflict("SET_FROZEN", "场景集已冻结")
         current = int(row["current_version"])
@@ -199,15 +215,16 @@ class SetService(SetSupport):
         )
         version = current + 1
         snapshot = build_snapshot(
-            set_id, version, row["name"], row["description"], row["project"], row["owner"], members, True
+            set_id, version, row["name"], row["description"], row["project"], row["owner"],
+            members, True, row["visibility"]
         )
         await self._insert_pending(set_id, row["project"], principal, snapshot, expected=current)
         await self._publish_snapshot(snapshot)
-        await self._finish_publish(set_id, version, snapshot, principal, frozen=True, expected=current)
+        await self._finish_publish(set_id, version, snapshot, principal, frozen=True, expected=current, visibility=row["visibility"])
         return await self.get(set_id, principal)
 
     async def derive(self, set_id: str, payload: SetDerive, principal: Principal) -> dict[str, Any]:
-        row = await self._set_row(set_id, principal.project)
+        row = await self._visible_set_row(set_id, principal)
         members = await self.db.fetch_all(
             "SELECT scenario_id, scenario_version, sort_order FROM scenario_set_member "
             "WHERE set_id=:sid AND set_version=:ver ORDER BY sort_order, scenario_id",
@@ -218,6 +235,7 @@ class SetService(SetSupport):
             description=row["description"],
             members=[{"scenario_id": m["scenario_id"], "scenario_version": m["scenario_version"], "sort_order": m["sort_order"]} for m in members],
             project=payload.project or row["project"],
+            visibility=payload.visibility or row["visibility"],
         )
         return await self.create(create, principal)
 
@@ -242,6 +260,16 @@ class SetService(SetSupport):
             if scenario["status"] == "archived":
                 raise AppError("SCENARIO_ARCHIVED", f"场景 {sid} 已归档，不能加入场景集", status=422)
             version = int(item.get("scenario_version") or 0) or int(scenario["current_version"])
+            published = await self.db.fetch_one(
+                "SELECT publish_state FROM scenario_version WHERE scenario_id=:sid AND version=:ver",
+                {"sid": sid, "ver": version},
+            )
+            if published is None or published["publish_state"] != "published":
+                raise AppError(
+                    "SCENARIO_VERSION_UNAVAILABLE",
+                    f"场景 {sid} 的 v{version} 不是可引用的已发布版本",
+                    status=422,
+                )
             result.append(
                 {"scenario_id": sid, "scenario_version": version, "sort_order": int(item.get("sort_order", index))}
             )
@@ -255,8 +283,8 @@ class SetService(SetSupport):
             if expected == 0:
                 await session.execute(
                     text(
-                        "INSERT INTO scenario_set(id,name,description,current_version,frozen,owner,project) "
-                        "VALUES (:id,:name,:desc,0,false,:owner,:project)"
+                        "INSERT INTO scenario_set(id,name,description,current_version,frozen,owner,project,visibility) "
+                        "VALUES (:id,:name,:desc,0,false,:owner,:project,:visibility)"
                     ),
                     {
                         "id": set_id,
@@ -264,6 +292,7 @@ class SetService(SetSupport):
                         "desc": snapshot["description"],
                         "owner": principal.user,
                         "project": project,
+                        "visibility": snapshot.get("payload", {}).get("visibility", "private"),
                     },
                 )
             await self._insert_version(session, set_id, snapshot, expected, principal)
@@ -339,6 +368,7 @@ class SetService(SetSupport):
         *,
         frozen: bool,
         expected: int,
+        visibility: str,
     ) -> None:
         async with self.db.session() as session:
             await session.execute(
@@ -350,10 +380,16 @@ class SetService(SetSupport):
             )
             result = await session.execute(
                 text(
-                    "UPDATE scenario_set SET current_version=:ver, frozen=:frozen, updated_at=now() "
-                    "WHERE id=:sid AND current_version=:expected"
+                    "UPDATE scenario_set SET current_version=:ver, frozen=:frozen, visibility=:visibility, "
+                    "updated_at=now() WHERE id=:sid AND current_version=:expected"
                 ),
-                {"sid": set_id, "ver": version, "frozen": frozen, "expected": expected},
+                {
+                    "sid": set_id,
+                    "ver": version,
+                    "frozen": frozen,
+                    "visibility": visibility,
+                    "expected": expected,
+                },
             )
             if not affected(result):
                 await session.rollback()
@@ -375,6 +411,22 @@ class SetService(SetSupport):
         )
         if row is None:
             raise not_found("场景集", set_id)
+        return row
+
+    async def _visible_set_row(self, set_id: str, principal: Principal) -> dict[str, Any]:
+        row = await self._set_row(set_id, principal.project)
+        if (
+            row["visibility"] == "private"
+            and not principal.admin
+            and row["owner"] != principal.user
+        ):
+            raise not_found("场景集", set_id)
+        return row
+
+    async def _editable_set_row(self, set_id: str, principal: Principal) -> dict[str, Any]:
+        row = await self._visible_set_row(set_id, principal)
+        if not principal.admin and row["owner"] != principal.user:
+            raise AppError("FORBIDDEN", "只有场景集所有者或管理员可以修改", status=403)
         return row
 
     async def _version_row(self, set_id: str, version: int) -> dict[str, Any] | None:

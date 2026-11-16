@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from backend.domain.models import ScenarioUpdate, SetDerive, SetUpdate
+from backend.domain.models import ScenarioUpdate, SetCreate, SetDerive, SetMember, SetUpdate
 from backend.scenario.service import ScenarioService
 from backend.scenario.sets import SetService
 from backend.shared.auth import Principal
@@ -84,3 +84,63 @@ async def test_set_freeze_derive_and_immutability(db: Database, tmp_path: Path, 
     derived = await sets.derive(created["set_id"], SetDerive(name="派生"), principal)
     assert derived["set_id"] != created["set_id"]
     assert derived["frozen"] is False
+
+
+async def test_set_can_pin_old_scenario_version(
+    db: Database, tmp_path: Path, principal: Principal
+) -> None:
+    await seed_metric(db)
+    store = FileStore(tmp_path)
+    scenarios = ScenarioService(db, store)
+    sets = SetService(db, store)
+    created = await make_scenario(scenarios, principal, "固定版本场景")
+    update = ScenarioUpdate(
+        name="固定版本场景-v2",
+        version=1,
+        source={"type": "record", "log_id": "log-1", "format": "mcap"},
+        time_window={"start_ts": 0, "end_ts": 180000, "trigger_ts": 60000},
+        metrics=[],
+    )
+    await scenarios.update(created["scenario_id"], update, principal)
+
+    def payload(version: int) -> SetCreate:
+        return SetCreate(
+            name=f"固定 v{version}",
+            members=[SetMember(scenario_id=created["scenario_id"], scenario_version=version)],
+        )
+
+    pinned = await sets.create(payload(1), principal)
+    page = await sets.members(pinned["set_id"], principal)
+    assert page["items"][0]["scenario_version"] == 1
+    assert page["items"][0]["scenario_name"] == "固定版本场景-v2"
+
+    with pytest.raises(AppError) as exc:
+        await sets.create(payload(99), principal)
+    assert exc.value.code == "SCENARIO_VERSION_UNAVAILABLE"
+
+
+async def test_private_and_public_set_visibility(
+    db: Database, tmp_path: Path, principal: Principal
+) -> None:
+    await seed_metric(db)
+    store = FileStore(tmp_path)
+    scenarios = ScenarioService(db, store)
+    sets = SetService(db, store)
+    scenario = await make_scenario(scenarios, principal, "公共私有场景")
+    other = Principal(user="other", project="default", projects=("default",), admin=False)
+    admin = Principal(user="admin", project="default", projects=("default",), admin=True, role="admin")
+
+    public_payload = set_payload([scenario], "公共集")
+    public_payload.visibility = "public"
+    public = await sets.create(public_payload, principal)
+    private = await sets.create(set_payload([scenario], "私有集"), other)
+
+    visible = await sets.list_items(principal, visibility="public")
+    assert [item["id"] for item in visible["items"]] == [public["set_id"]]
+    all_visible = await sets.list_items(principal)
+    assert {item["id"] for item in all_visible["items"]} == {public["set_id"]}
+    assert (await sets.list_items(admin))["items"]
+    with pytest.raises(AppError) as exc:
+        await sets.get(private["set_id"], principal)
+    assert exc.value.status == 404
+    assert (await sets.get(private["set_id"], admin))["visibility"] == "private"

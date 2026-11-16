@@ -8,9 +8,15 @@ from jsonschema import Draft202012Validator, SchemaError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.domain.models import MetricDef, MetricTemplate, MetricType
+from backend.domain.models import (
+    MetricConfig,
+    MetricDef,
+    MetricTemplate,
+    MetricType,
+    ScenarioMetricInstance,
+)
 from backend.scenario.common import loads
-from backend.scenario.metrics import validate_def_templates
+from backend.scenario.metrics import validate_def_templates, validate_instance
 from backend.shared.auth import Principal, audit
 from backend.shared.db import Database, affected, dumps
 from backend.shared.errors import AppError, conflict, not_found
@@ -189,7 +195,7 @@ class MetricService:
             params["type_id"] = type_id
         rows = await self.db.fetch_all(
             f"""
-            SELECT d.*, t.name AS type_name, c.id AS category_id, c.name AS category_name
+            SELECT d.*, c.id AS category_id
             FROM metric_def d
             JOIN metric_type t ON t.id=d.type_id
             JOIN metric_category c ON c.id=t.category_id
@@ -199,13 +205,14 @@ class MetricService:
             params,
         )
         for row in rows:
-            for key in ("trigger_templates", "trigger_ops", "function_templates", "ops"):
+            for key in ("trigger_templates", "trigger_functions", "trigger_ops", "function_templates", "functions", "ops"):
                 row[key] = loads(row[key])
         return rows
 
     async def create_def(self, body: MetricDef, principal: Principal) -> dict[str, Any]:
         async with self.db.session() as session:
             await validate_def_templates(session, body)
+            await self._validate_rule_config(session, body)
             exists = await session.execute(
                 text("SELECT 1 FROM metric_def WHERE id=:id"), {"id": body.id}
             )
@@ -219,6 +226,7 @@ class MetricService:
     async def update_def(self, def_id: str, body: MetricDef, principal: Principal) -> dict[str, Any]:
         async with self.db.session() as session:
             await validate_def_templates(session, body)
+            await self._validate_rule_config(session, body)
             row = (
                 await session.execute(
                     text("SELECT MAX(version) AS version FROM metric_def WHERE id=:id"), {"id": def_id}
@@ -241,7 +249,7 @@ class MetricService:
         )
         if row is None:
             raise not_found("Metric 定义", f"{def_id}@{version}")
-        for key in ("trigger_templates", "trigger_ops", "function_templates", "ops"):
+        for key in ("trigger_templates", "trigger_functions", "trigger_ops", "function_templates", "functions", "ops"):
             row[key] = loads(row[key])
         return row
 
@@ -256,15 +264,36 @@ class MetricService:
             await session.commit()
         return {"id": def_id, "status": "deprecated"}
 
+    async def _validate_rule_config(self, session: AsyncSession, body: MetricDef) -> None:
+        if not body.trigger_functions and not body.functions:
+            return
+        config = MetricConfig(
+            trigger_functions=body.trigger_functions,
+            trigger_ops=body.trigger_ops,
+            functions=body.functions,
+            ops=body.ops,
+            ret=body.ret,
+            action=body.action,
+            level=body.level,
+            is_global=body.is_global,
+        )
+        instance = ScenarioMetricInstance(
+            metric_def_id=body.id,
+            metric_def_ver=body.version,
+            config=config,
+        )
+        await validate_instance(session, instance)
+
     async def _insert_def(self, session: AsyncSession, body: MetricDef) -> None:
         await session.execute(
             text(
                 """
                 INSERT INTO metric_def(id,version,type_id,name,level,business_type,run_mode,is_global,
-                  trigger_templates,trigger_ops,function_templates,ops,ret,action,status,description)
+                  trigger_templates,trigger_functions,trigger_ops,function_templates,functions,ops,
+                  ret,action,status,description)
                 VALUES (:id,:ver,:type_id,:name,:level,:btype,:run_mode,:global,
-                  CAST(:tt AS JSONB),CAST(:tops AS JSONB),CAST(:ft AS JSONB),CAST(:ops AS JSONB),
-                  :ret,:action,:status,:desc)
+                  CAST(:tt AS JSONB),CAST(:tf AS JSONB),CAST(:tops AS JSONB),CAST(:ft AS JSONB),
+                  CAST(:funcs AS JSONB),CAST(:ops AS JSONB),:ret,:action,:status,:desc)
                 """
             ),
             {
@@ -277,8 +306,10 @@ class MetricService:
                 "run_mode": body.run_mode,
                 "global": body.is_global,
                 "tt": dumps([ref.model_dump() for ref in body.trigger_templates]),
+                "tf": dumps([item.model_dump() for item in body.trigger_functions]),
                 "tops": dumps(body.trigger_ops),
                 "ft": dumps([ref.model_dump() for ref in body.function_templates]),
+                "funcs": dumps([item.model_dump() for item in body.functions]),
                 "ops": dumps(body.ops),
                 "ret": body.ret,
                 "action": body.action,

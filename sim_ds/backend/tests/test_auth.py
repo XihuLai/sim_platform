@@ -16,6 +16,7 @@ def test_production_requires_tokens(tmp_path: Path) -> None:
         auth_mode="required",
         data_dir=tmp_path,
         tokens={},
+        account_auth=False,
         database_url="postgresql+asyncpg://x/y",
     )
     with pytest.raises(SystemExit):
@@ -28,6 +29,18 @@ def test_production_with_token_is_valid(tmp_path: Path) -> None:
         auth_mode="required",
         data_dir=tmp_path,
         tokens={"secret": TokenPrincipal(user="ops", projects=("default",))},
+        database_url="postgresql+asyncpg://x/y",
+    )
+    settings.validate()
+
+
+def test_production_account_auth_is_valid(tmp_path: Path) -> None:
+    settings = Settings(
+        env="production",
+        auth_mode="required",
+        data_dir=tmp_path,
+        tokens={},
+        account_auth=True,
         database_url="postgresql+asyncpg://x/y",
     )
     settings.validate()

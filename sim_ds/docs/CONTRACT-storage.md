@@ -89,8 +89,10 @@ metric_category（固定 5 类：comfort/compliance/safety/efficiency/navigation
   已含 ret）；删除禁止，用 status=deprecated。
 - 元信息：level（S0/S1/S2）、business_type（dpc...）、run_mode（async/sync）、
   is_global。
-- 规则组合：trigger_templates、trigger_ops、function_templates、ops、
-  ret、action。只引用 template_id，不存实际 env 值。
+- 规则组合：trigger_templates、trigger_functions、trigger_ops、function_templates、
+  functions、ops、ret、action。可直接保存含 env 的规则 JSON；写入时校验 template
+  存在与 kind 匹配，并按 JSON 中的 template_id 自动派生 trigger_templates /
+  function_templates。旧格式（仅模板引用）继续兼容。
 
 ### 3.4 scenario_metric
 - 字段：scenario_id、metric_def_id、metric_def_ver、alias、config JSONB、

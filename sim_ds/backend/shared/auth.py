@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.config import Settings, TokenPrincipal
-from backend.shared.db import dumps
+from backend.shared.db import Database, dumps
 from backend.shared.errors import AppError
 
 
@@ -24,6 +24,12 @@ class Principal:
     projects: tuple[str, ...]
     admin: bool = False
     authenticated: bool = True
+    role: str = "user"
+    max_priority: int = 9
+    max_running_cases: int | None = None
+    max_cpu: int | None = None
+    max_mem_gb: int | None = None
+    max_gpu: int | None = None
 
 
 def _token_principal(settings: Settings, token: str) -> TokenPrincipal | None:
@@ -37,29 +43,73 @@ def _extract_token(request: Request) -> str | None:
     return None
 
 
-def resolve_principal(request: Request, settings: Settings) -> Principal:
+async def resolve_principal(request: Request, settings: Settings, db: Database) -> Principal:
+    token = _extract_token(request)
+    if token:
+        found = _token_principal(settings, token)
+        if found is not None:
+            return _static_principal(request, found)
+        row = await db.fetch_one(
+            """
+            SELECT u.* FROM sim_session s JOIN sim_user u ON u.id=s.user_id
+            WHERE s.token=:token AND s.expires_at > now() AND u.status='active'
+            """,
+            {"token": token},
+        )
+        if row is None:
+            raise AppError("UNAUTHENTICATED", "访问令牌无效或已过期", status=401)
+        return _account_principal(request, row)
+
     if settings.auth_mode == "dev":
         user = request.headers.get("x-user", "dev")
         project = request.headers.get("x-project", "default")
-        return Principal(user=user, project=project, projects=(project,), admin=True)
+        return Principal(
+            user=user,
+            project=project,
+            projects=(project,),
+            admin=True,
+            role="super_admin",
+            max_priority=9,
+        )
+    raise AppError("UNAUTHENTICATED", "缺少访问令牌", status=401)
 
-    token = _extract_token(request)
-    if not token:
-        raise AppError("UNAUTHENTICATED", "缺少访问令牌", status=401)
-    found = _token_principal(settings, token)
-    if found is None:
-        raise AppError("UNAUTHENTICATED", "访问令牌无效", status=401)
-    requested = request.headers.get("x-project") or (found.projects[0] if found.projects else "")
+
+def _requested_project(request: Request, projects: tuple[str, ...], admin: bool) -> str:
+    requested = request.headers.get("x-project") or (projects[0] if projects else "")
     if not requested:
         raise AppError("PROJECT_REQUIRED", "需要 X-Project 指定项目", status=400)
-    if not found.admin and requested not in found.projects:
+    if not admin and requested not in projects:
         raise AppError("FORBIDDEN", "无权访问该项目", status=403, detail={"project": requested})
+    return requested
+
+
+def _static_principal(request: Request, found: TokenPrincipal) -> Principal:
+    project = _requested_project(request, found.projects, found.admin)
     return Principal(
         user=found.user,
-        project=requested,
+        project=project,
         projects=found.projects,
         admin=found.admin,
-        authenticated=True,
+        role="super_admin" if found.admin else "user",
+        max_priority=9,
+    )
+
+
+def _account_principal(request: Request, row: dict[str, object]) -> Principal:
+    role = str(row["role"])
+    admin = role in {"admin", "super_admin"}
+    project = _requested_project(request, (str(row["project"]),), admin)
+    return Principal(
+        user=str(row["username"]),
+        project=project,
+        projects=(str(row["project"]),),
+        admin=admin,
+        role=role,
+        max_priority=int(str(row["max_priority"])),
+        max_running_cases=row.get("max_running_cases"),  # type: ignore[arg-type]
+        max_cpu=row.get("max_cpu"),  # type: ignore[arg-type]
+        max_mem_gb=row.get("max_mem_gb"),  # type: ignore[arg-type]
+        max_gpu=row.get("max_gpu"),  # type: ignore[arg-type]
     )
 
 

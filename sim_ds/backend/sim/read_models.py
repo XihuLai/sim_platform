@@ -12,6 +12,11 @@ from backend.shared.db import Database
 from backend.shared.errors import AppError, not_found
 from backend.sim.status import counts_from_row
 
+FAILED_CASE_SQL = (
+    "status IN ('failed','timeout','worker_lost') OR EXISTS ("
+    "SELECT 1 FROM case_result r WHERE r.case_run_id=case_run.id AND r.pass IS FALSE)"
+)
+
 
 class TaskReadMixin:
     """Read-only TaskService surface, kept separate to respect file-size limits."""
@@ -91,6 +96,7 @@ class TaskReadMixin:
         principal: Principal,
         *,
         status: str = "",
+        outcome: str = "",
         cursor: str | None = None,
         page_size: int = 100,
     ) -> dict[str, Any]:
@@ -101,6 +107,11 @@ class TaskReadMixin:
         if status:
             clauses.append("status=:status")
             params["status"] = status
+        if outcome == "fail":
+            clauses.append(f"({FAILED_CASE_SQL})")
+        elif outcome == "pass":
+            clauses.append("status='succeeded' AND NOT EXISTS (SELECT 1 FROM case_result r "
+                           "WHERE r.case_run_id=case_run.id AND r.pass IS FALSE)")
         if cursor:
             from backend.shared.canonical import decode_cursor
 
@@ -146,7 +157,9 @@ class TaskReadMixin:
             """
             SELECT id, scenario_id, status, reason, attempt, worker_id, exit_code, finished_at
             FROM case_run WHERE task_id=:tid
-              AND status IN ('failed','timeout','worker_lost','canceled')
+              AND (status IN ('failed','timeout','worker_lost') OR EXISTS (
+                SELECT 1 FROM case_result r WHERE r.case_run_id=case_run.id AND r.pass IS FALSE
+              ))
             ORDER BY finished_at DESC NULLS LAST, id LIMIT 20
             """,
             {"tid": task_id},

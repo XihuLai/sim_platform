@@ -3,16 +3,23 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useCursorList } from "../hooks";
 import { Card, DataState, PageHeader, StatusBadge, formatTime } from "../components/ui";
+import { TagFilter } from "../components/TagFilter";
 import { VirtualList } from "../components/VirtualList";
 import type { Scenario } from "../types";
 
 export function ScenarioList() {
   const [search, setSearch] = useState("");
-  const [tag, setTag] = useState("");
+  const [tagExpr, setTagExpr] = useState("");
   const [status, setStatus] = useState("active");
   const list = useCursorList<Scenario>(
-    (cursor) => api.scenarios.list({ search, tag, status, cursor, size: 50 }),
-    [search, tag, status]
+    (cursor) => api.scenarios.list({
+      search,
+      tag_expr: tagExpr,
+      status,
+      cursor,
+      size: 50
+    }),
+    [search, tagExpr, status]
   );
 
   return (
@@ -24,7 +31,7 @@ export function ScenarioList() {
       />
       <Card className="filters">
         <input placeholder="搜索名称或 ID" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <input placeholder="标签，例如 cut-in" value={tag} onChange={(event) => setTag(event.target.value)} />
+        <TagFilter value={tagExpr} onChange={setTagExpr} />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="active">启用</option>
           <option value="archived">已归档</option>
@@ -44,7 +51,7 @@ export function ScenarioList() {
               <div className="scenario-row">
                 <div>
                   <strong>{item.name}</strong>
-                  <small>{item.id} · v{item.version} · {formatTime(item.created_at)}</small>
+                  <small>{item.id} · v{item.version} · 创建人 {item.owner || "—"} · {formatTime(item.created_at)}</small>
                 </div>
                 <div className="tags">
                   {item.tags.slice(0, 4).map((tagName) => <span key={tagName}>{tagName}</span>)}

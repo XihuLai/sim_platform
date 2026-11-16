@@ -33,6 +33,13 @@ class TaskService(TaskReadMixin):
     # ------------------------------------------------------------- submit
     async def submit(self, payload: SimTaskCreate, principal: Principal) -> dict[str, Any]:
         project = self._scope_project(payload.project or principal.project, principal)
+        if payload.priority > principal.max_priority:
+            raise AppError(
+                "PRIORITY_FORBIDDEN",
+                f"当前账号最高可提交优先级 P{principal.max_priority}",
+                status=403,
+                detail={"requested": payload.priority, "max_priority": principal.max_priority},
+            )
         set_row = await self.db.fetch_one(
             "SELECT * FROM scenario_set WHERE id=:id AND project=:project",
             {"id": payload.set_id, "project": project},

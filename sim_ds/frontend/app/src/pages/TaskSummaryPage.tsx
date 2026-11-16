@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAsync, useCursorList } from "../hooks";
 import { BarChart, Donut } from "../components/Charts";
-import { Card, DataState, PageHeader, StatusBadge, formatTime } from "../components/ui";
+import { Card, DataState, PageHeader, ResultBadge, StatusBadge, formatTime } from "../components/ui";
 import { VirtualList } from "../components/VirtualList";
 import type { CaseRun } from "../types";
 
@@ -15,7 +15,7 @@ export function TaskSummaryPage() {
   const { taskId = "" } = useParams();
   const summary = useAsync(() => api.tasks.summary(taskId), [taskId]);
   const failures = useCursorList<CaseRun>(
-    (cursor) => api.tasks.cases(taskId, { status: "failed", cursor, size: 50 }),
+    (cursor) => api.tasks.cases(taskId, { outcome: "fail", cursor, size: 50 }),
     [taskId]
   );
 
@@ -78,7 +78,7 @@ export function TaskSummaryPage() {
                 <div className="failure-row">
                   <code>{item.case_run_id}</code>
                   <span>{item.scenario_id}</span>
-                  <StatusBadge status={item.status} />
+                  <ResultBadge status={item.status} metrics={item.metrics} />
                   <small>{formatTime(item.finished_at)}</small>
                   <Link className="link" to={`/playback?case=${item.case_run_id}`}>播放</Link>
                 </div>

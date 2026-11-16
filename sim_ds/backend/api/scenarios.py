@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -19,6 +19,9 @@ router = APIRouter(tags=["scenarios"])
 async def list_scenarios(
     search: str = "",
     tag: str = "",
+    tags: list[str] | None = Query(default=None),
+    tag_expr: str = "",
+    tag_mode: Literal["and", "or"] = Query(default="or"),
     status: str = "active",
     cursor: str | None = None,
     page_size: int = Query(default=50, ge=1, le=200),
@@ -26,8 +29,26 @@ async def list_scenarios(
     service: ScenarioService = Depends(get_scenarios),
 ) -> dict[str, Any]:
     return await service.list_items(
-        principal, search=search, tag=tag, status=status, cursor=cursor, page_size=page_size
+        principal,
+        search=search,
+        tag=tag,
+        tags=tags,
+        tag_expr=tag_expr,
+        tag_mode=tag_mode,
+        status=status,
+        cursor=cursor,
+        page_size=page_size,
     )
+
+
+@router.get("/tags", response_model=dict[str, Any])
+async def list_tags(
+    search: str = "",
+    page_size: int = Query(default=200, ge=1, le=500),
+    principal: Principal = Depends(get_principal),
+    service: ScenarioService = Depends(get_scenarios),
+) -> dict[str, Any]:
+    return {"items": await service.tags(principal, search=search, page_size=page_size)}
 
 
 @router.post("/scenarios", response_model=dict[str, Any], status_code=201)

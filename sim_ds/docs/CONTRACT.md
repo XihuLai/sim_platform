@@ -5,6 +5,7 @@
 > 契约变更只允许向后兼容新增；破坏性变更须开新主版本并在 CHANGELOG 高亮。
 
 ## 0. 版本变更
+- v2.2 : metric_def 支持直接保存 `trigger_functions` / `trigger_ops` / `functions` 规则 JSON（含 env），并按其中 template_id 自动派生模板引用；Metric 管理页展示定义 JSON。
 - v2.1 : 统一 scenario_metric.config 不含 level/is_global（从 metric_def 查）；红线分阻塞级/建议级。
 - v2.0（BREAKING）：统一异步展开门槛和状态迁移权责；定义快照发布与恢复、生产项目隔离、暂停/故障语义、复现输入及分区归档查询边界。
 - v1.2：Metric 由四层改为**五层模型**（新增 metric_template）；
@@ -141,13 +142,15 @@
   },
   "env_example": {...} }
 
-// 4) metric_def（规则组合 + 元信息，不存实际 env 值）
+// 4) metric_def（规则组合 + 元信息；可选内嵌规则 JSON）
 { "id":"safety.brake.hard", "version":1, "type_id":"safety.brake",
   "name":"急刹", "level":"S0", "business_type":"dpc",
   "run_mode":"async", "is_global":false,
   "trigger_templates": [ {"template_id":"9","slot":0,"required":true} ],
+  "trigger_functions": [ /* 同 scenario_metric.config.trigger_functions */ ],
   "trigger_ops": ["AND"],
   "function_templates": [ {"template_id":"30","slot":0,"required":true} ],
+  "functions": [ /* 同 scenario_metric.config.functions */ ],
   "ops": [],
   "ret": "pass", "action": "not_stop_sim",
   "status":"active", "description":"" }

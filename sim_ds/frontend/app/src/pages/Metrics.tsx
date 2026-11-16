@@ -1,51 +1,92 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useAsync } from "../hooks";
-import { Card, DataState, PageHeader, StatusBadge, Tabs } from "../components/ui";
+import { Card, DataState, PageHeader, StatusBadge } from "../components/ui";
+import { MetricDefForm } from "../components/MetricDefForm";
+import { currentUser } from "../auth";
+import type { MetricDef } from "../types";
 
 export function Metrics() {
-  const [tab, setTab] = useState<"tree" | "templates">("tree");
   const [selected, setSelected] = useState<string>("");
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<MetricDef | null>(null);
+  const [message, setMessage] = useState("");
+  const user = currentUser();
+  const isAdmin = Boolean(user?.admin) || user?.role === "admin" || user?.role === "super_admin";
   const state = useAsync(async () => {
-    const [categories, types, defs, templates] = await Promise.all([
+    const [categories, types, defs] = await Promise.all([
       api.metrics.categories(),
       api.metrics.types(),
-      api.metrics.defs(),
-      api.metrics.templates()
+      api.metrics.defs()
     ]);
     return {
       categories: categories.items,
       types: types.items,
-      defs: defs.items,
-      templates: templates.items
+      defs: defs.items
     };
   }, []);
+  const latestDefs = useMemo(() => {
+    const byId = new Map<string, MetricDef>();
+    for (const definition of state.data?.defs || []) {
+      const current = byId.get(definition.id);
+      if (!current || definition.version > current.version) byId.set(definition.id, definition);
+    }
+    return Array.from(byId.values());
+  }, [state.data]);
   const activeDef = useMemo(
-    () => state.data?.defs.find((item) => item.id === selected) || state.data?.defs[0],
-    [state.data, selected]
+    () => latestDefs.find((item) => item.id === selected) || latestDefs[0],
+    [latestDefs, selected]
   );
+  const metricJson = useMemo(() => {
+    if (!activeDef) return null;
+    const view: Record<string, unknown> = { ...activeDef };
+    delete view.type_id;
+    delete view.trigger_templates;
+    delete view.function_templates;
+    return view;
+  }, [activeDef]);
 
   return (
     <div className="page">
-      <PageHeader title="Metric 管理" subtitle="固定 5 类 → 类型树 → 模板 env_schema → 定义版本 → 场景实例" />
+      <PageHeader
+        title="Metric 管理"
+        subtitle="查看已有 Metric 定义及其 JSON 配置；新增 Metric 用 JSON 编辑 trigger_functions / trigger_ops / functions"
+        actions={isAdmin ? <button className="btn" onClick={() => setCreating(true)}>新增 Metric</button> : undefined}
+      />
       <DataState loading={state.loading} error={state.error} empty={false} onRetry={state.reload}>
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          options={[{ value: "tree", label: "五层结构" }, { value: "templates", label: "模板 Schema" }]}
-        />
-        {tab === "tree" ? (
-          <div className="grid two">
-            <Card>
-              <h2>分类 / 类型 / 定义</h2>
-              <div className="metric-tree">
-                {state.data?.categories.map((category) => (
-                  <div key={String(category.id)} className="tree-group">
-                    <strong>{String(category.name)} <small>{String(category.id)}</small></strong>
-                    {state.data?.types.filter((type) => type.category_id === category.id).map((type) => (
+        {(creating || editing) && (
+          <MetricDefForm
+            key={editing?.id || "new"}
+            types={state.data?.types || []}
+            initial={editing || undefined}
+            onCancel={() => {
+              setCreating(false);
+              setEditing(null);
+            }}
+            onCreated={(id) => {
+              setCreating(false);
+              setEditing(null);
+              setSelected(id);
+              setMessage("Metric 已保存");
+              state.reload();
+            }}
+          />
+        )}
+        {message && <div className="notice">{message}</div>}
+        <div className="grid two">
+          <Card>
+            <h2>已有 Metric 定义</h2>
+            <div className="metric-tree">
+              {state.data?.categories.map((category) => (
+                <div key={String(category.id)} className="tree-group">
+                  <strong>{String(category.name)} <small>{String(category.id)}</small></strong>
+                  {state.data?.types.filter((type) => type.category_id === category.id).map((type) => {
+                    const defs = latestDefs.filter((definition) => definition.type_id === type.id);
+                    if (!defs.length) return null;
+                    return (
                       <div key={type.id} className="tree-type">
                         <span>{type.name}</span>
-                        {state.data?.defs.filter((definition) => definition.type_id === type.id).map((definition) => (
+                        {defs.map((definition) => (
                           <button
                             key={`${definition.id}@${definition.version}`}
                             className={`tree-def ${activeDef?.id === definition.id ? "active" : ""}`}
@@ -56,49 +97,48 @@ export function Metrics() {
                           </button>
                         ))}
                       </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <h2>定义详情</h2>
-              {activeDef ? (
-                <>
-                  <div className="meta-line">
-                    <code>{activeDef.id}@v{activeDef.version}</code>
-                    <StatusBadge status={activeDef.status} />
-                    <span>level {activeDef.level || "—"}</span>
-                    <span>{activeDef.business_type || "—"}</span>
-                  </div>
-                  <p>{activeDef.description || "暂无描述"}</p>
-                  <h3>触发模板</h3>
-                  <TagList items={activeDef.trigger_templates.map((item) => `#${item.template_id}${item.required ? " 必需" : ""}`)} />
-                  <h3>检测函数</h3>
-                  <TagList items={activeDef.function_templates.map((item) => `#${item.template_id}${item.required ? " 必需" : ""}`)} />
-                  <h3>params_schema 预览</h3>
-                  <pre className="json small">{JSON.stringify(activeDef, null, 2)}</pre>
-                </>
-              ) : <p className="muted">暂无定义</p>}
-            </Card>
-          </div>
-        ) : (
-          <div className="grid two">
-            {state.data?.templates.map((template) => (
-              <Card key={template.id}>
-                <h2>#{template.id} {template.name} <small>{template.kind}</small></h2>
-                <pre className="json small">{JSON.stringify(template.env_schema, null, 2)}</pre>
-                <h3>env 示例</h3>
-                <pre className="json small">{JSON.stringify(template.env_example, null, 2)}</pre>
-              </Card>
-            ))}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <div className="card-head">
+              <h2>Metric JSON 配置</h2>
+              {activeDef && isAdmin && (
+                <div className="row-actions">
+                  <button className="btn tiny" onClick={() => { setEditing(activeDef); setCreating(false); }}>编辑</button>
+                  <button
+                    className="btn tiny danger"
+                    onClick={async () => {
+                      if (!confirm(`确认删除 Metric「${activeDef.name}」？删除后标记为废弃。`)) return;
+                      await api.metrics.deleteDef(activeDef.id);
+                      setSelected("");
+                      setMessage(`Metric ${activeDef.id} 已删除/废弃`);
+                      state.reload();
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
+              )}
+            </div>
+            {activeDef ? (
+              <>
+                <div className="meta-line">
+                  <code>{activeDef.id}@v{activeDef.version}</code>
+                  <StatusBadge status={activeDef.status} />
+                  <span>level {activeDef.level || "—"}</span>
+                  <span>{activeDef.business_type || "—"}</span>
+                  <span>{activeDef.run_mode || "async"}</span>
+                </div>
+                <pre className="json">{JSON.stringify(metricJson, null, 2)}</pre>
+              </>
+            ) : <p className="muted">暂无 Metric 定义</p>}
+          </Card>
+        </div>
       </DataState>
     </div>
   );
-}
-
-function TagList({ items }: { items: string[] }) {
-  return <div className="tags">{items.map((item) => <span key={item}>{item}</span>)}</div>;
 }

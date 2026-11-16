@@ -69,6 +69,39 @@ cd frontend/app && npm install && npm run dev
 | `SIM_EXPAND_BATCH` | `1000` | 异步展开批大小 |
 | `SIM_DATA_DIR` | `./data` | 文件事实源根目录 |
 
+## Mock 执行器
+
+本地联调可使用 `tools/mock/run_task.py` 模拟仿真 case。提交任务时将
+`RuntimeConfig.binary_id` 设为 `mock`，LocalExecutor 会为每个 case 调用该脚本并回写
+mock metrics：
+
+```json
+{ "binary_id": "mock", "args": [], "env": { "SIM_SEED": "42" } }
+```
+
+`scripts/start.sh` 启动后，在“发起仿真”页面的 Binary ID 选择 `mock` 即可。
+联调记录见 `evals/round-002-mock.md`。
+
+## 账号与权限
+
+系统内置超级管理员：
+
+```text
+用户名：df_sim
+密码：df@sim_007
+```
+
+登录地址：`http://localhost:5173/login`。后端 `8000` 默认也托管构建产物，因此两个地址
+登录后看到同一套前端界面；设置 `SIM_SERVE_FRONTEND=0` 可让后端只提供 API 与文档。超级管理员可在「账号与额度」页面创建账号，并配置：
+
+- 角色：超级管理员 / 管理员 / 普通用户
+- 最高可提交优先级 P0~P9
+- 最大并发 CaseRun 数
+- CPU / 内存 / GPU 额度
+
+任务提交会校验账号最高优先级；调度领取会校验账号并发与资源额度。场景创建自动记录
+`owner/created_by`。场景集支持 `public/private` 可见性，列表可切换“公共/私有”。
+
 ## 自检
 
 ```bash

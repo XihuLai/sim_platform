@@ -18,10 +18,43 @@ export interface Scenario {
   updated_at?: string | null;
 }
 
+export interface UserAccount {
+  id: string;
+  username: string;
+  display_name: string;
+  role: "super_admin" | "admin" | "user";
+  status: "active" | "disabled";
+  project: string;
+  max_priority: number;
+  max_running_cases?: number | null;
+  max_cpu?: number | null;
+  max_mem_gb?: number | null;
+  max_gpu?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface TagOption {
+  id: number;
+  name: string;
+  category?: string | null;
+  usage: number;
+}
+
+export interface ScenarioSource {
+  type: string;
+  log_id: string;
+  log_uri: string;
+  log_checksum: string;
+  format: string;
+}
+
 export interface ScenarioDetail extends Scenario {
-  source: Record<string, unknown>;
+  scenario_id?: string;
+  source: ScenarioSource;
   time_window: { start_ts: number; end_ts: number; trigger_ts: number };
   metrics: MetricInstance[];
+  extra: Record<string, unknown>;
   file_checksum: string;
   publish_state: string;
 }
@@ -40,6 +73,7 @@ export interface SetSummary {
   description?: string | null;
   current_version: number;
   frozen: boolean;
+  visibility: "private" | "public";
   owner?: string | null;
   project?: string | null;
   member_count: number;
@@ -51,6 +85,8 @@ export interface SetMember {
   scenario_id: string;
   scenario_version: number;
   sort_order: number;
+  scenario_name?: string | null;
+  scenario_status?: string | null;
 }
 
 export interface Task {
@@ -113,6 +149,13 @@ export interface TaskSummary {
   failures: Array<Partial<CaseRun> & { id: string }>;
 }
 
+export interface MetricRuleFunction {
+  name?: string;
+  function_field_name?: string;
+  template_id: string;
+  env: Record<string, unknown>;
+}
+
 export interface MetricDef {
   id: string;
   version: number;
@@ -120,9 +163,17 @@ export interface MetricDef {
   name: string;
   level?: string | null;
   business_type?: string | null;
+  run_mode?: "async" | "sync";
+  is_global?: boolean;
   status: string;
   trigger_templates: Array<{ template_id: string; required?: boolean }>;
+  trigger_functions?: MetricRuleFunction[];
+  trigger_ops?: Array<"AND" | "OR">;
   function_templates: Array<{ template_id: string; required?: boolean }>;
+  functions?: MetricRuleFunction[];
+  ops?: Array<"AND" | "OR">;
+  ret?: "pass" | "fail";
+  action?: string;
   description?: string | null;
 }
 

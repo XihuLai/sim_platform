@@ -83,11 +83,33 @@ const STATUS_TEXT: Record<string, string> = {
   pending: "待处理",
   active: "启用",
   archived: "已归档",
-  unavailable: "不可用"
+  unavailable: "不可用",
+  draft: "未冻结",
+  frozen: "已冻结",
+  public: "公共",
+  private: "私有"
 };
 
+export function statusLabel(status: string): string {
+  return STATUS_TEXT[status] || status;
+}
+
 export function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge status-${status}`}>{STATUS_TEXT[status] || status}</span>;
+  return <span className={`badge status-${status}`}>{statusLabel(status)}</span>;
+}
+
+export function ResultBadge({
+  status,
+  metrics
+}: {
+  status: string;
+  metrics?: Record<string, { pass?: boolean | null }>;
+}) {
+  const hasFailedMetric = Object.values(metrics || {}).some((item) => item.pass === false);
+  if (status === "succeeded" && hasFailedMetric) {
+    return <span className="badge status-failed">指标未通过</span>;
+  }
+  return <StatusBadge status={status} />;
 }
 
 export function PriorityBadge({ priority }: { priority: number }) {

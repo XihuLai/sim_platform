@@ -68,10 +68,16 @@ export function TaskList() {
                 <StatusBadge status={task.status} />
                 <span className="counts">{task.pass_count} 通过 / {task.fail_count} 未通过</span>
                 <div className="row-actions">
-                  {task.status === "paused"
-                    ? <button className="btn tiny" onClick={() => control(task, "resume")}>恢复</button>
-                    : <button className="btn tiny ghost" onClick={() => control(task, "pause")}>暂停</button>}
-                  <button className="btn tiny danger" onClick={() => control(task, "cancel")}>取消</button>
+                  {!["succeeded", "failed", "canceled"].includes(task.status) && (
+                    <>
+                      {task.status !== "expanding" && (
+                        task.status === "paused"
+                          ? <button className="btn tiny" onClick={() => control(task, "resume")}>恢复</button>
+                          : <button className="btn tiny ghost" onClick={() => control(task, "pause")}>暂停</button>
+                      )}
+                      <button className="btn tiny danger" onClick={() => control(task, "cancel")}>取消</button>
+                    </>
+                  )}
                   <Link className="btn tiny ghost" to={`/tasks/${task.task_id}/summary`}>结果</Link>
                 </div>
               </div>

@@ -76,6 +76,8 @@ class Settings:
     sync_expand_limit: int = 500
     seed: int = 7
     api_prefix: str = "/api"
+    account_auth: bool = True
+    serve_frontend: bool = True
 
     @property
     def is_postgres(self) -> bool:
@@ -90,8 +92,10 @@ class Settings:
             raise SystemExit(
                 "production requires SIM_AUTH_MODE=required; refusing to start without authentication"
             )
-        if self.is_production and not self.tokens:
-            raise SystemExit("production requires SIM_API_TOKENS with at least one principal")
+        if self.is_production and not self.tokens and not self.account_auth:
+            raise SystemExit(
+                "production requires SIM_API_TOKENS or database account authentication"
+            )
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -117,6 +121,8 @@ def load_settings() -> Settings:
         expand_batch=int(os.getenv("SIM_EXPAND_BATCH", "1000")),
         sync_expand_limit=int(os.getenv("SIM_SYNC_EXPAND_LIMIT", "500")),
         seed=int(os.getenv("SIM_SEED", "7")),
+        account_auth=os.getenv("SIM_ACCOUNT_AUTH", "1") not in {"0", "false", "no"},
+        serve_frontend=os.getenv("SIM_SERVE_FRONTEND", "1") not in {"0", "false", "no"},
     )
     settings.validate()
     return settings

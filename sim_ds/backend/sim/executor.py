@@ -163,6 +163,11 @@ class LocalExecutor:
     async def _finish(self, case: dict[str, Any], code: int, stdout: bytes, stderr: bytes) -> None:
         payload = self._parse(stdout)
         status = "succeeded" if code == 0 and payload is not None else "failed"
+        payload_reason = str(payload.get("reason") or "") if payload else ""
+        if status == "succeeded":
+            reason = payload_reason if payload and payload.get("result") == "fail" else ""
+        else:
+            reason = payload_reason or stderr.decode("utf-8", "replace")[-400:]
         await self.results.report_result(
             report_id=self._report_id(case, status),
             case_run_id=case["id"],
@@ -171,7 +176,7 @@ class LocalExecutor:
             status=status,
             metrics=payload.get("metrics", {}) if payload else {},
             exit_code=code,
-            reason="" if status == "succeeded" else stderr.decode("utf-8", "replace")[-400:],
+            reason=reason,
             output_uri=f"outputs/{case['task_id']}/{case['id']}",
         )
 
@@ -202,6 +207,17 @@ class LocalExecutor:
         binary = str(runtime.get("binary_id", "log-resim"))
         if binary not in {"log-resim", "sim_engine", "mock"}:
             binary = "log-resim"
+        if binary == "mock":
+            return [
+                sys.executable,
+                str(Path(__file__).resolve().parents[2] / "tools" / "mock" / "run_task.py"),
+                "--job-id",
+                str(task["id"]),
+                "--task-id",
+                output_dir.name,
+                "--seed",
+                self._mock_seed(seed, output_dir.name),
+            ]
         if args:
             return [sys.executable, "-m", "backend.sim.engine_cli", *args]
         return [
@@ -255,6 +271,11 @@ class LocalExecutor:
         if path.is_absolute():
             return path
         return self.settings.data_dir / path
+
+    @staticmethod
+    def _mock_seed(base: str, case_id: str) -> str:
+        digest = sha256_text(f"{base}:{case_id}")[7:19]
+        return str(int(digest, 16) % 1_000_000_000)
 
     def _substitute(self, arg: str, values: dict[str, str]) -> str:
         for key, value in values.items():

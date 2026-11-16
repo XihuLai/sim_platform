@@ -21,6 +21,7 @@ DEMO_TABLES = (
     "outbox",
     "project_quota",
     "resource_reservation",
+    "sim_session",
     "scenario",
     "scenario_metric",
     "scenario_set",
@@ -84,6 +85,7 @@ def clean(postgres_url: str) -> Iterator[None]:
     tables = ", ".join(DEMO_TABLES)
     with psycopg.connect(_sync_url(), autocommit=True) as conn:
         conn.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
+        conn.execute("DELETE FROM sim_user WHERE username <> 'df_sim'")
         conn.execute(
             "INSERT INTO project_quota(project,max_running_cases,max_cpu,max_mem_gb,max_gpu) "
             "VALUES ('default',64,64,256,4) ON CONFLICT DO NOTHING"

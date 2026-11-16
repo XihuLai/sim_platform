@@ -8,6 +8,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TEMPLATE_VAR = re.compile(r"\$\{([A-Z_]+)\}")
+TAG_PATTERN = re.compile(r"^[\w\u4e00-\u9fff-]{1,64}$")
+RESERVED_TAGS = {"and", "or"}
 ALLOWED_TEMPLATE_VARS = {"SCENARIO_URI", "OUTPUT_DIR", "SEED", "LOG_DIR"}
 ALLOWED_ENV_KEYS = {
     "SIM_SEED",
@@ -21,21 +23,20 @@ ALLOWED_ENV_KEYS = {
 LEVELS = {"S0", "S1", "S2"}
 
 
-class SourceExtract(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    clip_start_ts: int = 0
-    clip_end_ts: int = 0
-
-
 class ScenarioSource(BaseModel):
     model_config = ConfigDict(extra="allow")
     type: Literal["record", "synthetic"] = "record"
     log_id: str = ""
     log_uri: str = ""
     log_checksum: str = ""
-    format: Literal["mcap", "bag", "parquet"] = "mcap"
-    extract: SourceExtract = Field(default_factory=SourceExtract)
-    channels: list[str] = Field(default_factory=list)
+    format: Literal["rsclbag", "mcap", "bag", "parquet"] = "rsclbag"
+
+    @model_validator(mode="before")
+    @classmethod
+    def drop_extract(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "extract" in value:
+            return {key: item for key, item in value.items() if key != "extract"}
+        return value
 
 
 class TimeWindow(BaseModel):
@@ -261,13 +262,29 @@ class MetricDef(BaseModel):
     run_mode: Literal["async", "sync"] = "async"
     is_global: bool = False
     trigger_templates: list[TemplateRef] = Field(default_factory=list)
+    trigger_functions: list[RuleFunction] = Field(default_factory=list)
     trigger_ops: list[Literal["AND", "OR"]] = Field(default_factory=list)
     function_templates: list[TemplateRef] = Field(default_factory=list)
+    functions: list[RuleFunction] = Field(default_factory=list)
     ops: list[Literal["AND", "OR"]] = Field(default_factory=list)
     ret: Literal["pass", "fail"] = "pass"
     action: str = "not_stop_sim"
     status: str = "active"
     description: str = ""
+
+    @model_validator(mode="after")
+    def derive_template_refs(self) -> MetricDef:
+        if self.trigger_functions and not self.trigger_templates:
+            self.trigger_templates = [
+                TemplateRef(template_id=item.template_id, slot=index, required=True)
+                for index, item in enumerate(self.trigger_functions)
+            ]
+        if self.functions and not self.function_templates:
+            self.function_templates = [
+                TemplateRef(template_id=item.template_id, slot=index, required=True)
+                for index, item in enumerate(self.functions)
+            ]
+        return self
 
 
 class DataSourceCreate(BaseModel):
@@ -297,6 +314,18 @@ class ScenarioCreate(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
     project: str | None = None
 
+    @field_validator("tags")
+    @classmethod
+    def valid_tags(cls, value: list[str]) -> list[str]:
+        for tag in value:
+            if tag.lower() in RESERVED_TAGS:
+                raise ValueError(f"标签 {tag!r} 是保留字，不能使用 AND/OR")
+            if not TAG_PATTERN.fullmatch(tag):
+                raise ValueError(
+                    f"标签 {tag!r} 含非法字符；仅允许中文、字母、数字、下划线和短横线"
+                )
+        return value
+
 
 class ScenarioUpdate(ScenarioCreate):
     version: int = Field(ge=1)
@@ -309,6 +338,7 @@ class SetCreate(BaseModel):
     description: str = ""
     members: list[SetMember] = Field(default_factory=list)
     project: str | None = None
+    visibility: Literal["private", "public"] = "private"
 
 
 class SetUpdate(SetCreate):
@@ -319,3 +349,4 @@ class SetUpdate(SetCreate):
 class SetDerive(BaseModel):
     name: str | None = None
     project: str | None = None
+    visibility: Literal["private", "public"] | None = None

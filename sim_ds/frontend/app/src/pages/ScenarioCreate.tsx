@@ -1,100 +1,105 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAsync } from "../hooks";
 import { Card, DataState, PageHeader, TextField } from "../components/ui";
-import type { MetricDef, MetricTemplate } from "../types";
-
-function configFor(definition: MetricDef, templates: MetricTemplate[]) {
-  const build = (refs: Array<{ template_id: string }>) =>
-    refs.map((ref) => {
-      const template = templates.find((item) => item.id === ref.template_id);
-      return {
-        name: template?.name || ref.template_id,
-        function_field_name: template?.name || "",
-        template_id: ref.template_id,
-        env: structuredClone(template?.env_example || {})
-      };
-    });
-  return {
-    trigger_functions: build(definition.trigger_templates),
-    trigger_ops: ["AND"],
-    functions: build(definition.function_templates),
-    ops: [],
-    ret: "pass",
-    action: "not_stop_sim",
-    level: definition.level || "S0",
-    is_global: false
-  };
-}
+import { SourceEditor, type SourceDraft } from "../components/SourceEditor";
+import { buildMetricConfig } from "../metricConfig";
+import { MetricConfigEditor, toEditable, type EditableMetric } from "../components/MetricConfigEditor";
+import { TAG_RULE_TEXT, tagValidationError } from "../tags";
 
 export function ScenarioCreate() {
   const navigate = useNavigate();
   const catalog = useAsync(async () => {
-    const [types, defs, templates, sources] = await Promise.all([
-      api.metrics.types(),
+    const [defs, templates, sources] = await Promise.all([
       api.metrics.defs(),
       api.metrics.templates(),
       api.playback.list({ size: 50 })
     ]);
-    return { types: types.items, defs: defs.items, templates: templates.items, sources: sources.items };
+    return { defs: defs.items, templates: templates.items, sources: sources.items };
   }, []);
 
   const [name, setName] = useState("城市路口-新场景");
   const [description, setDescription] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [logId, setLogId] = useState("log-001");
-  const [clipStart, setClipStart] = useState("0");
-  const [clipEnd, setClipEnd] = useState("180000");
+  const [source, setSource] = useState<SourceDraft>({
+    sourceId: "",
+    logId: "log-001",
+    logUri: "",
+    logChecksum: "sha256:demo",
+    format: "rsclbag"
+  });
+  const [startTs, setStartTs] = useState("0");
+  const [endTs, setEndTs] = useState("180000");
   const [trigger, setTrigger] = useState("60000");
   const [tags, setTags] = useState("cut-in, junction");
-  const [defId, setDefId] = useState("");
+  const [metrics, setMetrics] = useState<EditableMetric[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    if (!defId && catalog.data?.defs.length) setDefId(catalog.data.defs[0].id);
-  }, [catalog.data, defId]);
+    if (initialized.current || !catalog.data?.defs.length) return;
+    const definition = catalog.data.defs[0];
+    setMetrics([
+      toEditable({
+        metric_def_id: definition.id,
+        metric_def_ver: definition.version,
+        alias: null,
+        config: buildMetricConfig(definition, catalog.data.templates),
+        enabled: true
+      })
+    ]);
+    initialized.current = true;
+  }, [catalog.data]);
 
-  const selectedSource = catalog.data?.sources.find((item) => item.source_id === sourceId);
+  const tagError = tagValidationError(tags);
   const payload = useMemo(() => {
-    const definition = catalog.data?.defs.find((item) => item.id === defId);
-    const metric = definition
-      ? [{
-          metric_def_id: definition.id,
-          metric_def_ver: definition.version,
-          alias: null,
-          config: configFor(definition, catalog.data?.templates || []),
-          enabled: true,
-          extra: {}
-        }]
-      : [];
+    const metricPayload = metrics.map(({ configText, ...metric }) => {
+      try {
+        return { ...metric, config: JSON.parse(configText) };
+      } catch {
+        return { ...metric, config: "<invalid JSON>" };
+      }
+    });
     return {
       name,
       description,
       project: localStorage.getItem("sim.project") || "default",
       source: {
         type: "record",
-        log_id: selectedSource?.source_id || logId,
-        log_uri: selectedSource?.uri || "",
-        log_checksum: "sha256:demo",
-        format: "mcap",
-        extract: { clip_start_ts: Number(clipStart), clip_end_ts: Number(clipEnd) },
-        channels: selectedSource?.channels.map((channel) => channel.name) || ["camera_front", "can"]
+        log_id: source.logId,
+        log_uri: source.logUri,
+        log_checksum: source.logChecksum,
+        format: source.format
       },
-      time_window: { start_ts: Number(clipStart), end_ts: Number(clipEnd), trigger_ts: Number(trigger) },
-      metrics: metric,
+      time_window: { start_ts: Number(startTs), end_ts: Number(endTs), trigger_ts: Number(trigger) },
+      metrics: metricPayload,
       tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
       extra: {}
     };
-  }, [name, description, sourceId, logId, clipStart, clipEnd, trigger, tags, defId, catalog.data, selectedSource]);
+  }, [name, description, source, startTs, endTs, trigger, tags, metrics]);
 
   async function save() {
+    if (tagError) {
+      setError(tagError);
+      return;
+    }
+    if (!metrics.length) {
+      setError("请至少选择一个 Metric");
+      return;
+    }
+    let metricPayload: unknown[];
+    try {
+      metricPayload = metrics.map(({ configText, ...metric }) => ({ ...metric, config: JSON.parse(configText) }));
+    } catch {
+      setError("Metric config JSON 格式错误");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const created = await api.scenarios.create(payload);
-      navigate(`/scenarios/${created.id}/edit`);
+      const created = await api.scenarios.create({ ...payload, metrics: metricPayload });
+      navigate(`/scenarios/${created.id || created.scenario_id}/edit`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
     } finally {
@@ -111,53 +116,32 @@ export function ScenarioCreate() {
             <h2>基础信息</h2>
             <TextField label="场景名称" value={name} onChange={setName} />
             <TextField label="描述" value={description} onChange={setDescription} />
-            <label className="field">
-              <span>数据源（可留空手填 log）</span>
-              <select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-                <option value="">手动填写</option>
-                {catalog.data?.sources.map((source) => (
-                  <option key={source.source_id} value={source.source_id}>
-                    {source.source_id} · {source.kind} · {source.duration_ms}ms
-                  </option>
-                ))}
-              </select>
-            </label>
-            <TextField label="Log ID" value={logId} onChange={setLogId} />
+            <SourceEditor sources={catalog.data?.sources || []} draft={source} onChange={setSource} />
             <div className="row">
-              <TextField label="片段开始 ms" value={clipStart} onChange={setClipStart} type="number" />
-              <TextField label="片段结束 ms" value={clipEnd} onChange={setClipEnd} type="number" />
-              <TextField label="触发点 ms" value={trigger} onChange={setTrigger} type="number" />
+              <TextField label="start_ts" value={startTs} onChange={setStartTs} type="number" />
+              <TextField label="end_ts" value={endTs} onChange={setEndTs} type="number" />
+              <TextField label="trigger_ts" value={trigger} onChange={setTrigger} type="number" />
             </div>
             <TextField label="标签（逗号分隔）" value={tags} onChange={setTags} />
+            {tagError && <div className="inline-error">{tagError}</div>}
+            <p className="muted">{TAG_RULE_TEXT}</p>
           </Card>
           <Card>
             <h2>Metric 规则</h2>
-            <label className="field">
-              <span>Metric 定义（category → type 分组）</span>
-              <select value={defId} onChange={(event) => setDefId(event.target.value)}>
-                {catalog.data?.types.map((type) => {
-                  const defs = catalog.data?.defs.filter((item) => item.type_id === type.id) || [];
-                  if (!defs.length) return null;
-                  return (
-                    <optgroup key={type.id} label={`${type.category_id} / ${type.name}`}>
-                      {defs.map((definition) => (
-                        <option key={definition.id} value={definition.id}>
-                          {definition.name} · {definition.id}@v{definition.version}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
-            </label>
-            <p className="muted">模板 env 默认值来自 metric_template.env_example，保存前由后端执行结构 + 动态 Schema 两级校验。</p>
+            <p className="muted">选择 Metric 定义后可编辑完整 config（trigger_functions / trigger_ops / functions），保存时一次性形成 Scenario。</p>
+            <MetricConfigEditor
+              metrics={metrics}
+              definitions={catalog.data?.defs || []}
+              templates={catalog.data?.templates || []}
+              onChange={setMetrics}
+            />
             <h2>JSON 预览</h2>
             <pre className="json">{JSON.stringify(payload, null, 2)}</pre>
           </Card>
         </div>
         {error && <div className="inline-error">{error}</div>}
         <div className="actions">
-          <button className="btn" onClick={save} disabled={saving || !defId}>
+          <button className="btn" onClick={save} disabled={saving || metrics.length === 0 || Boolean(tagError)}>
             {saving ? "保存中…" : "保存并发布 v1"}
           </button>
         </div>

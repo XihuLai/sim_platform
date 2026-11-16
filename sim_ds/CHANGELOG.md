@@ -1,5 +1,121 @@
 # CHANGELOG
 
+## Round 020 — 侧边栏路由高亮修复 — 2026-11-13
+- [fix] 侧边栏所有菜单改为精确匹配，访问 /scenarios/new 时只高亮“场景创建”，不再同时高亮“场景列表”
+- [fix] /tasks/new、/tasks/:id 也不会误高亮任务列表
+
+## Round 019 — 创建场景时编辑 Metric — 2026-11-13
+- [feat] 场景创建页直接选择 Metric 定义、增删多个 Metric，并编辑完整 config JSON 后一次性保存 Scenario
+- [feat] 默认加载第一个 Metric 配置；JSON 预览实时更新；config JSON 错误阻止提交
+- [test] 浏览器实测创建场景时修改 Metric ret=pass→fail，保存后 v1 配置正确落库
+
+## Round 018 — Metric 编辑与删除 — 2026-11-13
+- [feat] Metric 详情新增管理员「编辑 / 删除」操作
+- [feat] 编辑加载原定义并生成新版本（v1 → v2），列表只展示每个 id 的最新版本
+- [feat] 删除为软删除/废弃，确认后从默认定义列表移除
+- [test] 增加 Metric 更新版本、废弃及列表过滤测试；浏览器实测编辑 v2、删除均成功
+
+## Round 017 — 导入实际 Metric 与配置展示 — 2026-11-13
+- [data] 导入 6 个实际 Metric 定义（id: 18/33/38/39/920/37139），覆盖 safety/navigation/comfort/compliance 四类
+- [data] 补齐模板 15/21/22/27/87 和类型 compliance.steering/compliance.dlp
+- [chore] 删除测试指标 demo.ui_metric、safety.json.ui
+- [feat] Metric 详情 JSON 隐藏 trigger_templates/function_templates，仅展示实际 trigger_functions/functions 配置
+- [tool] 新增 scripts/import_metrics.py，支持从 metric JSON 文件导入并保留原 id
+
+## Round 016 — Metric JSON 去掉 type_id — 2026-11-13
+- [fix] Metric JSON 展示移除 `type_id`；数据库/接口内部仍保留用于类型树分组
+- [docs] 明确 id 为定义唯一键，type_id 为类型外键
+
+## Round 015 — 精简 Metric JSON — 2026-11-13
+- [fix] Metric 定义接口与页面 JSON 移除 `type_name`、`category_name`，保留 `type_id`、`category_id`
+- [test] 增加字段移除断言；59 passed
+
+## Round 014 — Metric JSON 配置管理 — 2026-11-13
+- [breaking] metric_def 新增 `trigger_functions` / `functions` JSONB 规则字段（migration 008），兼容原模板引用
+- [feat] Metric 管理页改为“已有定义列表 + 选中 JSON 配置”，移除无意义的 params_schema 预览和模板 Schema 页签
+- [feat] 新增 Metric 时 trigger_functions / trigger_ops / functions（及 ops）按 JSON 编辑
+- [feat] 场景创建引用 Metric 定义时优先复制定义中的规则 JSON，而非仅 env_example
+- [contract] 契约升级 v2.2，存储规范同步 metric_def 内嵌规则 JSON
+- [test] 新增 Metric 定义 JSON 持久化与场景配置复用测试
+
+## Round 013 — Metric 新增入口与管理员权限 — 2026-11-13
+- [feat] Metric 管理页新增「新增 Metric」入口，仅管理员/超级管理员可见
+- [feat] 支持新增 Metric 定义：ID、名称、版本、类型、level、run_mode、ret/action、触发/函数模板
+- [security] Metric 分类/类型/模板/定义的写接口统一要求管理员权限，普通用户返回 403
+- [test] 增加普通用户创建 Metric 被拒绝测试；58 passed
+
+## Round 012 — 移除 Scenario.extract — 2026-11-13
+- [breaking] Scenario source 移除 `extract`，片段范围统一使用 `time_window.start_ts/end_ts`
+- [feat] 场景创建/编辑页删除“片段开始/结束”重复输入，只保留 start_ts / trigger_ts / end_ts
+- [compat] 后端接收旧 payload 时会丢弃 `extract`；API 响应不再返回该字段
+- [compat] 已发布历史版本文件保持不可变，新版本不再写入 extract
+- [test] 增加旧 extract 输入丢弃测试；58 passed
+
+## Round 011 — rsclbag 默认格式 — 2026-11-13
+- [feat] 场景数据源格式新增 `rsclbag`，并设为后端模型与前端创建页默认格式
+- [feat] 创建/编辑页格式选项为 rsclbag、mcap、bag、parquet
+- [test] 增加场景数据源默认格式测试；57 passed
+
+## Round 010 — 管理员路由与前端托管开关 — 2026-11-13
+- [fix] 普通用户不显示「账号与额度」菜单，直接访问 `/admin/users` 自动跳回场景列表
+- [feat] 新增 `SIM_SERVE_FRONTEND`（默认 1）；设为 0 时后端只提供 API/docs
+- [docs] 说明前端 5173 与后端 8000 默认显示同一 SPA 的原因
+
+## Round 009 — 账号、权限额度与场景集可见性 — 2026-11-13
+- [feat] 新增 `sim_user` / `sim_session` 账号系统，PBKDF2 密码哈希、Bearer 会话登录
+- [feat] 内置超级管理员 `df_sim` / `df@sim_007`（最高 P9，额度 96 cases / 192 CPU / 768GB / 12 GPU）
+- [feat] 管理员账号与额度页面；可配置角色、状态、最高优先级、并发及 CPU/内存/GPU 额度
+- [feat] 任务提交校验账号最高优先级；调度领取校验账号并发与资源额度
+- [feat] 场景创建自动记录 owner/created_by 并展示创建人
+- [feat] 场景集新增 public/private 可见性；列表公共/私有切换；派方可选择可见性
+- [security] 私有场景集仅 owner/管理员可读，修改/冻结仅 owner/管理员
+- [migration] 新增 007_accounts_visibility.sql
+- [test] 账号登录、用户额度、优先级拒绝、公共/私有可见性测试；56 passed
+
+## Round 008 — 标签合法性校验 — 2026-11-13
+- [feat] 标签仅允许中文、字母、数字、下划线和短横线，长度 1~64
+- [feat] 拒绝 AND/OR 保留字及 &、|、括号、空格、逗号等特殊字符；创建/编辑页实时提示并禁用保存
+- [fix] Pydantic 校验错误 ctx 中的 ValueError 无法 JSON 序列化，导致 422 变成 500；已安全序列化
+- [test] 增加非法/保留标签、中文合法标签与 422 响应回归测试；52 passed
+
+## Round 007 — 标签表达式筛选 — 2026-11-13
+- [feat] 新增项目标签列表接口 `GET /tags`，返回标签及使用次数，支持搜索
+- [feat] 场景列表与场景集创建筛选改为已有标签下拉框（可搜索、可点选追加）
+- [feat] 标签表达式支持 `A&B|C`、`A&B&C`、括号，`&` 优先于 `|`
+- [api] `GET /scenarios` 新增 `tag_expr`，保留 `tags/tag_mode/tag` 兼容
+- [test] 增加表达式解析、优先级、非法表达式和三标签组合集成测试；41 passed
+
+## Round 006 — 多标签筛选 — 2026-11-13
+- [feat] 场景列表与场景集创建筛选支持多个标签（逗号分隔）
+- [feat] 标签匹配支持 AND（同时满足）与 OR（任一满足）
+- [api] `GET /scenarios` 新增重复 `tags` 参数与 `tag_mode=and|or`，保留单 `tag` 兼容
+- [test] 增加多标签 AND/OR 集成测试，最终 32 passed
+
+## Round 005 — 场景集名称 — 2026-11-13
+- [feat] 创建场景集时填写自定义名称；创建成功后名称输入重置为新的默认值
+- [feat] 派生场景集改为先填写来源信息与新名称，再确认派生
+- [test] 浏览器实测创建“自定义名称测试集”、派生“自定义派生名称”成功
+
+## Round 004 — 场景完整编辑 — 2026-11-13
+- [feat] 场景详情页展示完整元信息、数据源、时间窗、Metric config、extra、版本历史和完整 JSON 预览
+- [feat] 支持修改 trigger_ts、start_ts/end_ts、数据源、Metric config、alias、启停及新增/移除 Metric
+- [feat] 保存时按当前版本生成不可变新版本（vN → vN+1），保留历史版本
+- [test] 浏览器实测 场景-006 v2 → v3：trigger_ts=90000，加速度阈值 -3 → -3.5，checksum 更新，v1/v2 保留
+
+## Round 003 — 场景集版本选择与筛选 — 2026-11-13
+- [feat] 创建场景集时可按场景 ID / 标签筛选场景，并逐个指定成员版本（v1/v2/历史版本）
+- [feat] 成员列表返回并显示场景名称、scenario_id 和锁定版本
+- [fix] 后端校验成员引用的场景版本必须存在且 `publish_state=published`
+- [test] 增加旧版本锁定、非法版本拒绝、成员名称接口测试；最终 31 passed
+
+## Round 002 — Mock 联调 — 2026-11-12
+- [feat] LocalExecutor 支持 `binary_id=mock`，调用 `tools/mock/run_task.py` 并派生稳定 case seed
+- [fix] mock 失败/指标未通过原因回写；新增 case `outcome=pass|fail` 过滤与失败清单
+- [fix] 任务详情 polling 同步刷新 CaseRun；KPI 周期刷新；终态任务隐藏暂停/取消
+- [fix] 场景创建支持手动 Log URI/checksum/format；修复创建后 undefined 跳转与场景数刷新
+- [fix] 场景集未冻结状态、队列中文状态、指标未通过徽标
+- [test] 新增 mock 执行器集成测试，最终 30 passed；详见 evals/round-002-mock.md
+
 ## Round 001 — 实现轮 — 2026-11-12
 - [feat] Scenario/Set 不可变版本发布、checksum 校验、pending 崩溃恢复与并发 expected_version 冲突
 - [feat] Metric 五层 CRUD、模板 env_schema 动态校验、required 模板检查

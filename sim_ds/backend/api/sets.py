@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -17,12 +17,15 @@ router = APIRouter(tags=["sets"])
 @router.get("/sets", response_model=dict[str, Any])
 async def list_sets(
     frozen: bool | None = None,
+    visibility: Literal["private", "public"] | None = None,
     cursor: str | None = None,
     page_size: int = Query(default=50, ge=1, le=200),
     principal: Principal = Depends(get_principal),
     service: SetService = Depends(get_sets),
 ) -> dict[str, Any]:
-    return await service.list_items(principal, frozen=frozen, cursor=cursor, page_size=page_size)
+    return await service.list_items(
+        principal, frozen=frozen, visibility=visibility, cursor=cursor, page_size=page_size
+    )
 
 
 @router.post("/sets", response_model=dict[str, Any], status_code=201)

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useAsync } from "../hooks";
+import { useAsync, useInterval } from "../hooks";
+import { clearSession, currentUser } from "../auth";
 import { formatTime } from "./ui";
 
 const NAV = [
@@ -16,9 +17,15 @@ const NAV = [
 ];
 
 export function Layout() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = currentUser();
   const [project, setProject] = useState(localStorage.getItem("sim.project") || "default");
-  const overview = useAsync(() => api.overview(), [project]);
+  const overview = useAsync(() => api.overview(), [project, location.pathname]);
+  const isAdmin = Boolean(user?.admin) || user?.role === "admin" || user?.role === "super_admin";
+  const nav = isAdmin ? [...NAV, { to: "/admin/users", label: "账号与额度", icon: "⚙" }] : NAV;
   const stats = overview.data;
+  useInterval(() => overview.reload(), 5000);
 
   useEffect(() => {
     localStorage.setItem("sim.project", project);
@@ -35,18 +42,32 @@ export function Layout() {
           </div>
         </div>
         <nav>
-          {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/tasks"}>
+          {nav.map((item) => (
+            <NavLink key={item.to} to={item.to} end>
               <i>{item.icon}</i>
               {item.label}
             </NavLink>
           ))}
         </nav>
         <div className="side-foot">
+          <div className="account-box">
+            <strong>{user?.username || "未登录"}</strong>
+            <small>{user?.role || "—"}</small>
+          </div>
           <label>
             项目
             <input value={project} onChange={(event) => setProject(event.target.value || "default")} />
           </label>
+          <button
+            className="btn tiny ghost side-logout"
+            onClick={() => {
+              void api.auth.logout().catch(() => undefined);
+              clearSession();
+              navigate("/login");
+            }}
+          >
+            退出登录
+          </button>
           <small>最近刷新 {formatTime(stats ? new Date().toISOString() : null)}</small>
         </div>
       </aside>

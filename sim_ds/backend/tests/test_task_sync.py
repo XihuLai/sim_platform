@@ -86,3 +86,18 @@ async def test_cross_project_task_read_is_denied(db: Database, tmp_path: Path, p
     with pytest.raises(AppError) as exc:
         await tasks.get(submitted["task_id"], other)
     assert exc.value.status == 404
+
+
+async def test_priority_above_user_limit_is_rejected(
+    db: Database, tmp_path: Path, principal: Principal
+) -> None:
+    tasks, _ = await build_services(db, tmp_path, principal)
+    set_row = await db.fetch_one("SELECT id, current_version FROM scenario_set LIMIT 1")
+    limited = Principal(
+        user="limited", project="default", projects=("default",), admin=False, max_priority=3
+    )
+    payload = task_payload({"set_id": set_row["id"], "version": set_row["current_version"]})
+    payload.priority = 4
+    with pytest.raises(AppError) as exc:
+        await tasks.submit(payload, limited)
+    assert exc.value.code == "PRIORITY_FORBIDDEN"

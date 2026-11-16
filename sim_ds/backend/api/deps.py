@@ -27,9 +27,10 @@ def get_store(request: Request) -> FileStore:
     return request.app.state.store  # type: ignore[no-any-return]
 
 
-def get_principal(request: Request) -> Principal:
+async def get_principal(request: Request) -> Principal:
     settings: Settings = request.app.state.settings
-    principal = resolve_principal(request, settings)
+    db: Database = request.app.state.db
+    principal = await resolve_principal(request, settings, db)
     request.state.principal = principal
     return principal
 

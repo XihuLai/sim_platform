@@ -24,7 +24,7 @@ def install_handlers(app: FastAPI) -> None:
             content={
                 "code": "VALIDATION_ERROR",
                 "message": "请求参数校验失败",
-                "detail": {"errors": exc.errors()},
+                "detail": {"errors": _safe_errors(exc)},
             },
         )
 
@@ -34,3 +34,18 @@ def install_handlers(app: FastAPI) -> None:
             status_code=500,
             content={"code": "INTERNAL_ERROR", "message": "服务内部错误", "detail": {"type": type(exc).__name__}},
         )
+
+
+def _safe_errors(exc: RequestValidationError) -> list[dict[str, object]]:
+    errors: list[dict[str, object]] = []
+    for error in exc.errors():
+        item: dict[str, object] = {
+            "type": error.get("type"),
+            "loc": list(error.get("loc", ())),
+            "msg": error.get("msg"),
+        }
+        ctx = error.get("ctx")
+        if isinstance(ctx, dict):
+            item["ctx"] = {str(key): str(value) for key, value in ctx.items()}
+        errors.append(item)
+    return errors

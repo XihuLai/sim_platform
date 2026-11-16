@@ -95,8 +95,14 @@ metric_category (固定 5)
 
 ## 6. 安全与隔离
 
-- 生产模式必须 `SIM_AUTH_MODE=required` 且配置至少一个 token，否则启动失败。
+- 账号系统：`sim_user` 保存 PBKDF2 密码哈希、角色、最高优先级与 CPU/内存/GPU/并发额度；
+  `sim_session` 保存 24 小时登录会话。内置超级管理员 `df_sim`。
+- 生产模式必须 `SIM_AUTH_MODE=required`；可使用数据库账号会话或 `SIM_API_TOKENS` 静态 token。
 - 请求 principal 绑定 `project`；所有服务查询显式带 `project` 条件。
+- 任务提交校验账号 `max_priority`；调度领取校验账号并发与资源额度。
+- Metric 分类/类型/模板/定义的写操作仅管理员/超级管理员；普通用户只读。
+- 场景集 `visibility=public|private`：公共集项目内可见，私有集仅 owner/管理员可见；
+  修改/冻结仅 owner/管理员，公共集可被他人派生。
 - 跨项目读取返回 404（避免泄露存在性）；写入越权返回 403。
 - 关键写操作写 `audit_log`；`/audit` 按项目游标读取。
 

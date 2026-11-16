@@ -224,8 +224,9 @@ class Scheduler:
         await session.execute(
             text(
                 """
-                INSERT INTO resource_reservation(case_run_id,attempt,project,worker_id,cpu,mem_gb,gpu)
-                SELECT :cid,:attempt,t.project,:worker,:cpu,:mem,:gpu FROM sim_task t WHERE t.id=:tid
+                INSERT INTO resource_reservation(case_run_id,attempt,project,worker_id,owner,cpu,mem_gb,gpu)
+                SELECT :cid,:attempt,t.project,:worker,t.owner,:cpu,:mem,:gpu
+                FROM sim_task t WHERE t.id=:tid
                 ON CONFLICT (case_run_id,attempt) DO UPDATE SET released_at=NULL, created_at=now()
                 """
             ),

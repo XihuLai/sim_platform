@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAsync, useCursorList, useInterval } from "../hooks";
-import { Card, DataState, PageHeader, PriorityBadge, Progress, StatusBadge, Tabs, formatTime } from "../components/ui";
+import { Card, DataState, PageHeader, PriorityBadge, Progress, ResultBadge, StatusBadge, Tabs, formatTime } from "../components/ui";
 import { VirtualList } from "../components/VirtualList";
 import type { CaseRun } from "../types";
 
 const FILTERS = [
   { value: "", label: "全部" },
   { value: "succeeded", label: "成功" },
-  { value: "failed", label: "失败" },
+  { value: "failed", label: "执行失败" },
+  { value: "result_fail", label: "指标未通过" },
   { value: "running", label: "运行中" },
   { value: "queued", label: "排队" }
 ];
@@ -19,12 +20,24 @@ export function TaskDetail() {
   const taskState = useAsync(() => api.tasks.get(taskId), [taskId]);
   const [filter, setFilter] = useState("");
   const cases = useCursorList<CaseRun>(
-    (cursor) => api.tasks.cases(taskId, { status: filter, cursor, size: 100 }),
+    (cursor) =>
+      api.tasks.cases(taskId, {
+        status: filter === "result_fail" ? undefined : filter,
+        outcome: filter === "result_fail" ? "fail" : undefined,
+        cursor,
+        size: 100
+      }),
     [taskId, filter]
   );
   const [active, setActive] = useState<CaseRun | null>(null);
   const terminal = taskState.data && ["succeeded", "failed", "canceled"].includes(taskState.data.status);
-  useInterval(() => taskState.reload(), terminal ? null : 3000);
+  useInterval(() => {
+    taskState.reload();
+    cases.reload();
+  }, terminal ? null : 3000);
+  useEffect(() => {
+    if (taskState.data?.status) cases.reload();
+  }, [taskState.data?.status]);
 
   return (
     <div className="page">
@@ -67,7 +80,7 @@ export function TaskDetail() {
                 <button className={`case-row ${active?.case_run_id === item.case_run_id ? "active" : ""}`} onClick={() => setActive(item)}>
                   <code>{item.case_run_id}</code>
                   <span>{item.scenario_id} v{item.scenario_version}</span>
-                  <StatusBadge status={item.status} />
+                  <ResultBadge status={item.status} metrics={item.metrics} />
                   <small>attempt {item.attempt}</small>
                   <small>{formatTime(item.finished_at)}</small>
                 </button>
@@ -83,9 +96,18 @@ export function TaskDetail() {
             </div>
             <div className="grid two">
               <div>
-                <p>状态：<StatusBadge status={active.status} /> · attempt {active.attempt} · exit {active.exit_code ?? "—"}</p>
+                <p>状态：<ResultBadge status={active.status} metrics={active.metrics} /> · attempt {active.attempt} · exit {active.exit_code ?? "—"}</p>
                 <p>场景：{active.scenario_id} v{active.scenario_version}</p>
-                <p>失败原因：{active.reason || "无"}</p>
+                <p>
+                  失败原因：
+                  {active.reason ||
+                    (Object.values(active.metrics).some((metric) => metric.pass === false)
+                      ? `指标未通过：${Object.entries(active.metrics)
+                          .filter(([, metric]) => metric.pass === false)
+                          .map(([key]) => key)
+                          .join(", ")}`
+                      : "无")}
+                </p>
                 <p>输出：<code>{active.output_uri || "—"}</code></p>
               </div>
               <pre className="json small">{JSON.stringify(active.metrics, null, 2)}</pre>

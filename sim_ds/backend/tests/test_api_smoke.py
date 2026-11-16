@@ -30,3 +30,21 @@ def test_health_and_catalog_endpoints(postgres_url: str, clean: None, tmp_path: 
         assert empty.status_code == 200 and empty.json()["items"] == []
         missing = client.get("/api/tasks/tsk_missing")
         assert missing.status_code == 404
+
+
+def test_invalid_tag_returns_422(postgres_url: str, clean: None, tmp_path: Path) -> None:
+    app = create_app(app_settings(postgres_url, tmp_path))
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scenarios",
+            json={
+                "name": "非法标签",
+                "source": {"type": "record"},
+                "time_window": {"start_ts": 0, "end_ts": 1, "trigger_ts": 0},
+                "tags": ["A&B"],
+            },
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["code"] == "VALIDATION_ERROR"
+        assert body["detail"]["errors"][0]["ctx"]["error"]

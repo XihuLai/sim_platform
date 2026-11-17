@@ -5,7 +5,10 @@ import { useAsync } from "../hooks";
 import { Card, DataState, PageHeader, TextField } from "../components/ui";
 import type { SetSummary } from "../types";
 
-const ENV_KEYS = new Set(["SIM_SEED", "LOG_LEVEL", "SCENARIO_ID", "TASK_ID", "CASE_RUN_ID", "SIM_ENGINE", "METRIC_CONFIG"]);
+const ENV_KEYS = new Set([
+  "SIM_SEED", "LOG_LEVEL", "SCENARIO_ID", "TASK_ID",
+  "CASE_RUN_ID", "SIM_ENGINE", "METRIC_CONFIG", "OUTPUT_DIR"
+]);
 
 function parseEnv(text: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -30,13 +33,10 @@ export function TaskSubmit() {
   const engines = [
     { value: "log-resim", label: "内置确定性引擎" },
     { value: "mock", label: "Mock 执行器" },
+    { value: "mock_case", label: "单 case 模拟脚本 test_mock_run_case.py" },
     { value: "sim_engine", label: "sim_engine" }
   ];
-  const [args, setArgs] = useState("--scenario ${SCENARIO_URI}\n--out ${OUTPUT_DIR}");
   const [envText, setEnvText] = useState("SIM_SEED=42\nLOG_LEVEL=info");
-  const [cpu, setCpu] = useState("1");
-  const [mem, setMem] = useState("1");
-  const [gpu, setGpu] = useState("0");
   const [timeout, setTimeoutSec] = useState("120");
   const [retry, setRetry] = useState("1");
   const [busy, setBusy] = useState(false);
@@ -57,9 +57,9 @@ export function TaskSubmit() {
         priority: Number(priority),
         runtime: {
           binary_id: binary,
-          args: args.split("\n").map((line) => line.trim()).filter(Boolean),
+          args: [],
           env: parseEnv(envText),
-          resource: { cpu: Number(cpu), mem_gb: Number(mem), gpu: Number(gpu) },
+          resource: { cpu: 1, mem_gb: 1, gpu: 0 },
           timeout_sec: Number(timeout),
           retry: { max: Number(retry), on: ["timeout", "worker_lost"] }
         },
@@ -149,23 +149,14 @@ export function TaskSubmit() {
               </div>
             </label>
             <label className="field">
-              <span>Args（每行一个，支持模板变量）</span>
-              <textarea rows={4} value={args} onChange={(event) => setArgs(event.target.value)} />
+              <span>Env（KEY=VALUE，每行一个）</span>
+              <textarea rows={5} value={envText} onChange={(event) => setEnvText(event.target.value)} />
             </label>
             <p className="muted">
-              Args 是传给引擎的命令行参数；可用的模板变量：
-              {"${SCENARIO_URI}"} 场景文件路径、{"${OUTPUT_DIR}"} 当前 case 输出目录、
-              {"${SEED}"} 随机种子、{"${LOG_DIR}"} 任务日志目录。执行器会按 case 注入实际值。
+              默认输出目录：/tmp/&lt;task_id&gt;/&lt;case_run_id&gt;/。
+              可在 Env 中设置 OUTPUT_DIR 覆盖；未填写 Args 时由执行器自动注入
+              --scenario/--out/--seed。
             </p>
-            <label className="field">
-              <span>Env（KEY=VALUE，每行一个）</span>
-              <textarea rows={4} value={envText} onChange={(event) => setEnvText(event.target.value)} />
-            </label>
-            <div className="row">
-              <TextField label="CPU" value={cpu} onChange={setCpu} type="number" />
-              <TextField label="内存 GB" value={mem} onChange={setMem} type="number" />
-              <TextField label="GPU" value={gpu} onChange={setGpu} type="number" />
-            </div>
           </Card>
         </div>
         {error && <div className="inline-error">{error}</div>}

@@ -71,6 +71,40 @@ async def overview(
     }
 
 
+@router.get("/stats/users", response_model=dict[str, Any])
+async def user_stats(
+    days: int = Query(default=30, ge=1, le=365),
+    principal: Principal = Depends(get_principal),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    clauses = ["t.created_at >= now() - (:days * interval '1 day')"]
+    params: dict[str, Any] = {"days": days}
+    if not principal.admin:
+        clauses.append("t.owner=:owner")
+        params["owner"] = principal.user
+    rows = await db.fetch_all(
+        f"""
+        SELECT t.owner,
+               COUNT(*) AS tasks,
+               COALESCE(SUM(s.total),0) AS cases,
+               COALESCE(SUM(s.succeeded),0) AS succeeded,
+               COALESCE(SUM(s.pass_count),0) AS passed
+        FROM sim_task t LEFT JOIN task_summary s ON s.task_id=t.id
+        WHERE {' AND '.join(clauses)}
+        GROUP BY t.owner
+        ORDER BY cases DESC, t.owner
+        """,
+        params,
+    )
+    totals = {
+        "tasks": sum(int(row["tasks"]) for row in rows),
+        "cases": sum(int(row["cases"]) for row in rows),
+        "succeeded": sum(int(row["succeeded"]) for row in rows),
+        "passed": sum(int(row["passed"]) for row in rows),
+    }
+    return {"days": days, "items": rows, "totals": totals}
+
+
 @router.get("/audit", response_model=dict[str, Any])
 async def audit_log(
     cursor: str | None = None,

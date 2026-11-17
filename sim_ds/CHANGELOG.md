@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## Round 030 — Web 发起 3 cases 全流程验收 — 2026-11-17
+- [test] norm_sim 通过前端创建/冻结 3 成员场景集「前端3Case测试集」v2，并从「发起仿真」提交 mock_case 任务
+- [test] Executor 对 3 个 case 分别调用 test_mock_run_case.py，任务 tsk_20261117130320e1db9d：3/3 执行成功、3/3 指标通过
+- [fix] Executor 日志目录改为 data/logs/{task_id}/{case_run_id}/，避免并发 case 互相覆盖 run.log
+- [fix] test_mock_run_case.py 在 function_field_name 未命中时按 metric 名称回退规则，避免误报 unknown_function
+- [test] 结果汇总通过率 100%，Case 下钻显示 0.049/pass，播放器画面与通道正常且无 console error
+
+## Round 029 — Web 全流程测试与播放器修复 — 2026-11-17
+- [test] 普通用户 norm_sim 通过前端完成：登录 → 选择冻结集合 → mock 发起任务 → 进度 → 结果汇总 → 失败清单 → 播放器
+- [fix] 播放器未选择数据源时不再请求 /api/sources//channels，消除 404 console error
+- [test] test_mock_run_case.py 兼容新版 Scenario.metrics，单 case 实测 pass
+
+## Round 028 — 复制场景延迟创建 — 2026-11-17
+- [feat] 点击「复制」改为进入预填的复制场景页，不立即创建
+- [feat] 复制页预填源场景名称/数据源/时间窗/标签/Metric/extra，保存后才创建新场景
+- [feat] 复制页新增「取消」，取消只返回列表，不产生场景
+- [test] 浏览器实测：复制后取消场景数不变；复制后保存场景数 +1
+
+## Round 027 — 场景编辑取消修复 — 2026-11-17
+- [fix] 移除重复的「放弃更改」按钮，只保留「取消并返回列表」
+- [fix] 取消按钮显式 type=button 且只执行路由返回，不触发保存/复制
+- [test] 浏览器点击取消后场景总数保持不变（25→25）
+
+## Round 026 — 管理员删除场景 — 2026-11-17
+- [feat] 场景列表为管理员/超级管理员显示「删除」，执行永久删除
+- [security] 普通用户硬删除返回 403，仍只能归档
+- [security] 被任何场景集版本引用的场景禁止硬删除（409 SCENARIO_REFERENCED）
+- [test] 增加管理员删除、普通用户拒绝、引用保护测试
+
+## Round 025 — 场景编辑取消/放弃更改 — 2026-11-17
+- [feat] 场景编辑页新增「放弃更改」，恢复为服务端当前版本数据
+- [feat] 顶部新增「取消并返回列表」，有未保存修改时二次确认
+- [feat] 编辑中显示“有未保存的修改”提示
+- [test] 浏览器实测修改名称后可放弃恢复为原值
+
+## Round 024 — 场景/统计/额度/输出路径 — 2026-11-17
+- [feat] 场景支持复制新场景；场景列表支持归档；归档场景不出现在新建场景集选择中
+- [feat] Scenario 版本历史显示修改人 created_by
+- [feat] 发起仿真移除 Metric keys/Args/CPU/内存/GPU；资源使用默认值
+- [feat] 默认输出目录改为 /tmp/{task_id}/{case_run_id}；支持 RuntimeConfig.env.OUTPUT_DIR 覆盖
+- [feat] 新增数据统计页 /stats：按时间范围统计用户任务数与 case 累计
+- [feat] 账号额度新增每日 case 上限并在任务提交时校验；CPU/内存/GPU 额度 UI 隐藏且不参与调度
+- [feat] 任务列表默认“只看我的任务”，管理员可取消筛选
+- [pending] K8sPoolExecutor / K8sJobExecutor / K8s worker 尚未实现，需要目标集群与镜像/存储参数
+
 ## Round 023 — 引擎下拉与 Mock 环境日志 — 2026-11-17
 - [fix] Binary 引擎下拉改为受控浮层，固定显示在输入框下方，支持输入自定义 binary 路径
 - [feat] tools/mock/run_task.py 将执行器注入的全部环境变量写入 LOG_DIR/env-{case_run_id}.log

@@ -26,6 +26,7 @@ export interface UserAccount {
   status: "active" | "disabled";
   project: string;
   max_priority: number;
+  max_daily_cases?: number | null;
   max_running_cases?: number | null;
   max_cpu?: number | null;
   max_mem_gb?: number | null;

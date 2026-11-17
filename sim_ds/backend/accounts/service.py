@@ -59,8 +59,8 @@ class AccountService:
                     text(
                         """
                         INSERT INTO sim_user(id,username,password_hash,display_name,role,project,
-                          max_priority,max_running_cases,max_cpu,max_mem_gb,max_gpu)
-                        VALUES (:id,:username,:hash,:display,:role,:project,:priority,:cases,:cpu,:mem,:gpu)
+                          max_priority,max_daily_cases,max_running_cases,max_cpu,max_mem_gb,max_gpu)
+                        VALUES (:id,:username,:hash,:display,:role,:project,:priority,:daily,:cases,:cpu,:mem,:gpu)
                         """
                     ),
                     {
@@ -71,6 +71,7 @@ class AccountService:
                         "role": body.role,
                         "project": body.project,
                         "priority": body.max_priority,
+                        "daily": body.max_daily_cases,
                         "cases": body.max_running_cases,
                         "cpu": body.max_cpu,
                         "mem": body.max_mem_gb,
@@ -146,6 +147,7 @@ class AccountService:
             "status": row["status"],
             "project": row["project"],
             "max_priority": row["max_priority"],
+            "max_daily_cases": row.get("max_daily_cases"),
             "max_running_cases": row.get("max_running_cases"),
             "max_cpu": row.get("max_cpu"),
             "max_mem_gb": row.get("max_mem_gb"),

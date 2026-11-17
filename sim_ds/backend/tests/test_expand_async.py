@@ -60,7 +60,7 @@ async def test_501_cases_expand_asynchronously_once(
     tasks = TaskService(db, sets, sync_limit=500)
     submitted = await tasks.submit(task_payload({"set_id": frozen["set_id"], "version": frozen["version"]}), principal)
     assert submitted["status"] == "expanding"
-    assert submitted["total_cases"] == 0
+    assert submitted["total_cases"] == 501
 
     expander = Expander(db, sets, batch=1000)
     assert await expander.step() == 501

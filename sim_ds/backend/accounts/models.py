@@ -22,6 +22,7 @@ class UserCreate(BaseModel):
     role: Role = "user"
     project: str = "default"
     max_priority: int = Field(default=5, ge=0, le=9)
+    max_daily_cases: int | None = Field(default=None, ge=1)
     max_running_cases: int | None = Field(default=None, ge=1)
     max_cpu: int | None = Field(default=None, ge=1)
     max_mem_gb: int | None = Field(default=None, ge=1)
@@ -35,6 +36,7 @@ class UserUpdate(BaseModel):
     status: Status | None = None
     project: str | None = None
     max_priority: int | None = Field(default=None, ge=0, le=9)
+    max_daily_cases: int | None = Field(default=None, ge=1)
     max_running_cases: int | None = Field(default=None, ge=1)
     max_cpu: int | None = Field(default=None, ge=1)
     max_mem_gb: int | None = Field(default=None, ge=1)
@@ -49,6 +51,7 @@ class UserView(BaseModel):
     status: Status
     project: str
     max_priority: int
+    max_daily_cases: int | None
     max_running_cases: int | None
     max_cpu: int | None
     max_mem_gb: int | None

@@ -23,6 +23,7 @@ export function ScenarioEdit() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -38,12 +39,33 @@ export function ScenarioEdit() {
       }
     });
     setExtraText(JSON.stringify(detail.data.extra || {}, null, 2));
+    setDirty(false);
   }, [detail.data]);
 
   useEffect(() => {
     if (!detail.data) return;
     setMetrics(detail.data.metrics.map((metric) => editableFromScenario(metric, catalog.data?.defs || [])));
   }, [detail.data, catalog.data]);
+
+  function updateForm(value: ScenarioFormState) {
+    setForm(value);
+    setDirty(true);
+  }
+
+  function updateMetrics(value: EditableMetric[]) {
+    setMetrics(value);
+    setDirty(true);
+  }
+
+  function updateExtra(value: string) {
+    setExtraText(value);
+    setDirty(true);
+  }
+
+  function cancelEdit() {
+    if (dirty && !confirm("有未保存的修改，确认放弃并返回列表？")) return;
+    navigate("/scenarios");
+  }
 
   const nextVersion = (detail.data?.version || 0) + 1;
   const preview = useMemo(() => {
@@ -113,6 +135,7 @@ export function ScenarioEdit() {
         extra
       });
       setNotice(`已保存并生成 v${updated.version}（上一版本 v${detail.data.version}）`);
+      setDirty(false);
       detail.reload();
       versions.reload();
     } catch (reason) {
@@ -127,7 +150,19 @@ export function ScenarioEdit() {
       <PageHeader
         title="场景详情 / 编辑"
         subtitle={detail.data ? `${scenarioId} · 当前 v${detail.data.version}` : scenarioId}
-        actions={<button className="btn ghost" onClick={() => navigate("/scenarios")}>返回列表</button>}
+        actions={(
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              cancelEdit();
+            }}
+          >
+            取消并返回列表
+          </button>
+        )}
       />
       <DataState loading={detail.loading} error={detail.error} empty={false} onRetry={detail.reload}>
         <Card>
@@ -147,7 +182,7 @@ export function ScenarioEdit() {
         </Card>
         <div className="grid two">
           <div className="grid">
-            <ScenarioEditorForm form={form} onChange={setForm} />
+            <ScenarioEditorForm form={form} onChange={updateForm} />
           </div>
           <div className="grid">
             <Card>
@@ -157,7 +192,7 @@ export function ScenarioEdit() {
                 metrics={metrics}
                 definitions={catalog.data?.defs || []}
                 templates={catalog.data?.templates || []}
-                onChange={setMetrics}
+                onChange={updateMetrics}
               />
               {catalog.error && <div className="inline-error">Metric 定义加载失败：{catalog.error}</div>}
             </Card>
@@ -165,7 +200,7 @@ export function ScenarioEdit() {
               <h2>额外信息 extra</h2>
               <label className="field">
                 <span>JSON</span>
-                <textarea rows={5} value={extraText} onChange={(event) => setExtraText(event.target.value)} />
+                <textarea rows={5} value={extraText} onChange={(event) => updateExtra(event.target.value)} />
               </label>
             </Card>
             <Card>
@@ -176,6 +211,7 @@ export function ScenarioEdit() {
                     <li key={String(version.version)}>
                       <b>v{String(version.version)}</b>
                       <span>{String(version.publish_state)}</span>
+                      <span className="muted">修改人 {String(version.created_by || "—")}</span>
                       <small>{formatTime(String(version.created_at || ""))}</small>
                     </li>
                   ))}
@@ -188,10 +224,11 @@ export function ScenarioEdit() {
           <h2>完整 Scenario JSON 预览（保存后的 v{nextVersion}）</h2>
           <pre className="json">{JSON.stringify(preview, null, 2)}</pre>
         </Card>
+        {dirty && <div className="notice">有未保存的修改</div>}
         {error && <div className="inline-error">{error}</div>}
         {notice && <div className="notice">{notice}</div>}
         <div className="actions">
-          <button className="btn" onClick={save} disabled={saving}>
+          <button type="button" className="btn" onClick={save} disabled={saving}>
             {saving ? "保存中…" : `保存并派生新版本 v${nextVersion}`}
           </button>
         </div>

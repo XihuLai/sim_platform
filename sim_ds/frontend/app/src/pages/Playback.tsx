@@ -25,8 +25,14 @@ export function PlaybackPage() {
     () => sources.data?.items.find((item) => item.source_id === compareId),
     [sources.data, compareId]
   );
-  const primaryChannels = useAsync(() => api.playback.channels(sourceId), [sourceId]);
-  const secondaryChannels = useAsync(() => api.playback.channels(compareId), [compareId]);
+  const primaryChannels = useAsync(
+    async () => (sourceId ? api.playback.channels(sourceId) : { channels: [] }),
+    [sourceId]
+  );
+  const secondaryChannels = useAsync(
+    async () => (compareId ? api.playback.channels(compareId) : { channels: [] }),
+    [compareId]
+  );
 
   useEffect(() => {
     if (!sourceId && sources.data?.items.length) setSourceId(sources.data.items[0].source_id);

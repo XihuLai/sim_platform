@@ -7,7 +7,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Query
 
 from backend.api.deps import get_metrics, get_principal, get_scenarios
-from backend.domain.models import ScenarioCreate, ScenarioUpdate
+from backend.domain.models import ScenarioCopy, ScenarioCreate, ScenarioUpdate
 from backend.scenario.metrics_service import MetricService
 from backend.scenario.service import ScenarioService
 from backend.shared.auth import Principal
@@ -49,6 +49,16 @@ async def list_tags(
     service: ScenarioService = Depends(get_scenarios),
 ) -> dict[str, Any]:
     return {"items": await service.tags(principal, search=search, page_size=page_size)}
+
+
+@router.post("/scenarios/{scenario_id}:copy", response_model=dict[str, Any], status_code=201)
+async def copy_scenario(
+    scenario_id: str,
+    body: ScenarioCopy,
+    principal: Principal = Depends(get_principal),
+    service: ScenarioService = Depends(get_scenarios),
+) -> dict[str, Any]:
+    return await service.copy(scenario_id, principal, body.name)
 
 
 @router.post("/scenarios", response_model=dict[str, Any], status_code=201)

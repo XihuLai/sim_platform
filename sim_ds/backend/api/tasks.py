@@ -32,13 +32,15 @@ async def list_tasks(
     status: str = "",
     priority: int | None = None,
     search: str = "",
+    mine: bool = False,
     cursor: str | None = None,
     page_size: int = Query(default=50, ge=1, le=200),
     principal: Principal = Depends(get_principal),
     service: TaskService = Depends(get_tasks),
 ) -> dict[str, Any]:
     return await service.list_items(
-        principal, status=status, priority=priority, search=search, cursor=cursor, page_size=page_size
+        principal, status=status, priority=priority, search=search, mine=mine,
+        cursor=cursor, page_size=page_size
     )
 
 

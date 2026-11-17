@@ -13,6 +13,7 @@ const NAV = [
   { to: "/tasks/new", label: "发起仿真", icon: "▶" },
   { to: "/tasks", label: "任务列表", icon: "☰" },
   { to: "/queue", label: "队列看板", icon: "◷" },
+  { to: "/stats", label: "数据统计", icon: "◫" },
   { to: "/playback", label: "数据播放", icon: "◉" }
 ];
 

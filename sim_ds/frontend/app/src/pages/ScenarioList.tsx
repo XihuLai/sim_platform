@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useCursorList } from "../hooks";
 import { Card, DataState, PageHeader, StatusBadge, formatTime } from "../components/ui";
 import { TagFilter } from "../components/TagFilter";
 import { VirtualList } from "../components/VirtualList";
 import type { Scenario } from "../types";
+import { currentUser } from "../auth";
 
 export function ScenarioList() {
+  const navigate = useNavigate();
+  const user = currentUser();
+  const isAdmin = Boolean(user?.admin) || user?.role === "admin" || user?.role === "super_admin";
   const [search, setSearch] = useState("");
   const [tagExpr, setTagExpr] = useState("");
   const [status, setStatus] = useState("active");
@@ -57,7 +61,41 @@ export function ScenarioList() {
                   {item.tags.slice(0, 4).map((tagName) => <span key={tagName}>{tagName}</span>)}
                 </div>
                 <StatusBadge status={item.status} />
-                <Link className="link" to={`/scenarios/${item.id}/edit`}>编辑</Link>
+                <div className="row-actions">
+                  {item.status === "active" && (
+                    <>
+                      <Link className="link" to={`/scenarios/${item.id}/edit`}>编辑</Link>
+                      <button
+                        className="btn tiny ghost"
+                        onClick={() => navigate(`/scenarios/new?copy=${item.id}`)}
+                      >
+                        复制
+                      </button>
+                      <button
+                        className="btn tiny danger"
+                        onClick={async () => {
+                          if (!confirm(`确认归档场景「${item.name}」？归档后不会出现在新建场景集的选择列表中。`)) return;
+                          await api.scenarios.remove(item.id);
+                          list.reload();
+                        }}
+                      >
+                        归档
+                      </button>
+                    </>
+                  )}
+                  {isAdmin && (
+                    <button
+                      className="btn tiny danger"
+                      onClick={async () => {
+                        if (!confirm(`确认永久删除场景「${item.name}」？该操作不可恢复。`)) return;
+                        await api.scenarios.remove(item.id, true);
+                        list.reload();
+                      }}
+                    >
+                      删除
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           />

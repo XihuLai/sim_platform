@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAsync } from "../hooks";
 import { Card, DataState, PageHeader, TextField } from "../components/ui";
 import { SourceEditor, type SourceDraft } from "../components/SourceEditor";
 import { buildMetricConfig } from "../metricConfig";
 import { MetricConfigEditor, toEditable, type EditableMetric } from "../components/MetricConfigEditor";
-import { scenarioMetricFromEditable } from "../scenarioMetrics";
+import { editableFromScenario, scenarioMetricFromEditable } from "../scenarioMetrics";
 import { TAG_RULE_TEXT, tagValidationError } from "../tags";
 
 export function ScenarioCreate() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const copyId = searchParams.get("copy") || "";
   const catalog = useAsync(async () => {
     const [defs, templates, sources] = await Promise.all([
       api.metrics.defs(),
@@ -20,6 +22,10 @@ export function ScenarioCreate() {
     return { defs: defs.items, templates: templates.items, sources: sources.items };
   }, []);
 
+  const copySource = useAsync(
+    () => (copyId ? api.scenarios.get(copyId) : Promise.resolve(null)),
+    [copyId]
+  );
   const [name, setName] = useState("城市路口-新场景");
   const [description, setDescription] = useState("");
   const [source, setSource] = useState<SourceDraft>({
@@ -33,25 +39,49 @@ export function ScenarioCreate() {
   const [endTs, setEndTs] = useState("180000");
   const [trigger, setTrigger] = useState("60000");
   const [tags, setTags] = useState("cut-in, junction");
+  const [extraText, setExtraText] = useState("{}");
   const [metrics, setMetrics] = useState<EditableMetric[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => {
-    if (initialized.current || !catalog.data?.defs.length) return;
-    const definition = catalog.data.defs[0];
+    if (initialized.current || !catalog.data) return;
+    const catalogData = catalog.data;
+    if (copyId) {
+      const source = copySource.data;
+      if (!source) return;
+      setName(`${source.name}-副本`);
+      setDescription(source.description || "");
+      setSource({
+        sourceId: "",
+        logId: source.source.log_id,
+        logUri: source.source.log_uri,
+        logChecksum: source.source.log_checksum,
+        format: source.source.format as SourceDraft["format"]
+      });
+      setStartTs(String(source.time_window.start_ts));
+      setEndTs(String(source.time_window.end_ts));
+      setTrigger(String(source.time_window.trigger_ts));
+      setTags(source.tags.join(", "));
+      setExtraText(JSON.stringify(source.extra || {}, null, 2));
+      setMetrics(source.metrics.map((metric) => editableFromScenario(metric, catalogData.defs)));
+      initialized.current = true;
+      return;
+    }
+    if (!catalogData.defs.length) return;
+    const definition = catalogData.defs[0];
     setMetrics([
       toEditable({
         metric_def_id: definition.id,
         metric_def_ver: definition.version,
         alias: null,
-        config: buildMetricConfig(definition, catalog.data.templates),
+        config: buildMetricConfig(definition, catalogData.templates),
         enabled: true
       })
     ]);
     initialized.current = true;
-  }, [catalog.data]);
+  }, [catalog.data, copySource.data, copyId]);
 
   const tagError = tagValidationError(tags);
   const payload = useMemo(() => {
@@ -62,12 +92,18 @@ export function ScenarioCreate() {
         return { id: metric.metric_def_id, name: metric.metric_def_id, desc: "" };
       }
     });
+    let extra: unknown = extraText;
+    try {
+      extra = JSON.parse(extraText || "{}");
+    } catch {
+      extra = "<invalid JSON>";
+    }
     return {
       name,
       description,
-      project: localStorage.getItem("sim.project") || "default",
+      project: copySource.data?.project || localStorage.getItem("sim.project") || "default",
       source: {
-        type: "record",
+        type: copySource.data?.source.type || "record",
         log_id: source.logId,
         log_uri: source.logUri,
         log_checksum: source.logChecksum,
@@ -76,9 +112,9 @@ export function ScenarioCreate() {
       time_window: { start_ts: Number(startTs), end_ts: Number(endTs), trigger_ts: Number(trigger) },
       metrics: metricPayload,
       tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
-      extra: {}
+      extra
     };
-  }, [name, description, source, startTs, endTs, trigger, tags, metrics, catalog.data]);
+  }, [name, description, source, startTs, endTs, trigger, tags, metrics, catalog.data, extraText, copySource.data]);
 
   async function save() {
     if (tagError) {
@@ -98,10 +134,17 @@ export function ScenarioCreate() {
       setError("Metric config JSON 格式错误");
       return;
     }
+    let extra: unknown;
+    try {
+      extra = JSON.parse(extraText || "{}");
+    } catch {
+      setError("extra JSON 格式错误");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const created = await api.scenarios.create({ ...payload, metrics: metricPayload });
+      const created = await api.scenarios.create({ ...payload, metrics: metricPayload, extra });
       navigate(`/scenarios/${created.id || created.scenario_id}/edit`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
@@ -112,8 +155,17 @@ export function ScenarioCreate() {
 
   return (
     <div className="page">
-      <PageHeader title="场景创建" subtitle="录包片段 → 触发区间 → Metric 规则 → 标签 → 保存发布" />
-      <DataState loading={catalog.loading} error={catalog.error} empty={false} onRetry={catalog.reload}>
+      <PageHeader
+        title={copyId ? "复制场景" : "场景创建"}
+        subtitle={copyId ? `基于 ${copySource.data?.name || copyId} 预填，保存后才会创建新场景` : "录包片段 → 触发区间 → Metric 规则 → 标签 → 保存发布"}
+        actions={<button type="button" className="btn ghost" onClick={() => navigate("/scenarios")}>取消</button>}
+      />
+      <DataState
+        loading={catalog.loading || copySource.loading}
+        error={catalog.error || copySource.error}
+        empty={false}
+        onRetry={catalog.reload}
+      >
         <div className="grid two">
           <Card>
             <h2>基础信息</h2>
@@ -126,6 +178,10 @@ export function ScenarioCreate() {
               <TextField label="trigger_ts" value={trigger} onChange={setTrigger} type="number" />
             </div>
             <TextField label="标签（逗号分隔）" value={tags} onChange={setTags} />
+            <label className="field">
+              <span>额外信息 extra（JSON）</span>
+              <textarea rows={3} value={extraText} onChange={(event) => setExtraText(event.target.value)} />
+            </label>
             {tagError && <div className="inline-error">{tagError}</div>}
             <p className="muted">{TAG_RULE_TEXT}</p>
           </Card>

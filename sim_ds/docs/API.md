@@ -36,7 +36,8 @@
 | GET | `/scenarios/{id}?version=` | 读已发布版本文件并校验 checksum |
 | PUT | `/scenarios/{id}` | 基于 `version` 创建新版本，冲突返回 409 |
 | DELETE | `/scenarios/{id}?hard=` | 归档；硬删检查冻结 Set 引用 |
-| GET | `/scenarios/{id}/versions` | 版本历史与发布状态 |
+| GET | `/scenarios/{id}/versions` | 版本历史、发布状态与修改人 |
+| POST | `/scenarios/{id}:copy` | 复制最新已发布版本为新场景 |
 | GET | `/metrics/templates/{id}/scenarios` | 按 template_id 反查场景 |
 | GET | `/tags?search&page_size` | 当前项目已有标签（含使用次数），用于标签下拉框 |
 
@@ -115,7 +116,7 @@ Metric 定义可直接携带 `trigger_functions` / `trigger_ops` / `functions` �
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/tasks` | 提交任务；>500 cases 返回 202 + `expanding` |
-| GET | `/tasks?status&priority&search&cursor&page_size` | 任务列表（预聚合） |
+| GET | `/tasks?status&priority&search&mine&cursor&page_size` | 任务列表；`mine=true` 只看当前用户 |
 | GET | `/tasks/{id}` | 任务详情 |
 | GET | `/tasks/{id}/cases?status&outcome&cursor&page_size` | CaseRun 游标分页，≤500；`outcome=pass/fail` 按指标结果过滤 |
 | GET | `/tasks/{id}/cases/{cid}` | Case 下钻（DB 或归档层） |
@@ -168,4 +169,5 @@ checksum + 临时对象 + 原子 rename。索引任务在进程重启后由启�
 |---|---|---|
 | GET | `/health` | DB 健康检查 |
 | GET | `/stats/overview` | 首屏 KPI：场景数、任务通过率、队列深度 |
+| GET | `/stats/users?days=30` | 按用户统计时间范围内任务数、case 数、成功数与指标通过数 |
 | GET | `/audit?cursor&page_size` | 项目内审计日志 |

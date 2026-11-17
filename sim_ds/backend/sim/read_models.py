@@ -31,12 +31,16 @@ class TaskReadMixin:
         status: str = "",
         priority: int | None = None,
         search: str = "",
+        mine: bool = False,
         cursor: str | None = None,
         page_size: int = 50,
     ) -> dict[str, Any]:
         size = max(1, min(page_size, 200))
         clauses = ["t.project=:project"]
         params: dict[str, Any] = {"project": principal.project, "limit": size + 1}
+        if mine:
+            clauses.append("t.owner=:owner")
+            params["owner"] = principal.user
         if status:
             clauses.append("t.status=:status")
             params["status"] = status

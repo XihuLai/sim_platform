@@ -26,6 +26,7 @@ class Principal:
     authenticated: bool = True
     role: str = "user"
     max_priority: int = 9
+    max_daily_cases: int | None = None
     max_running_cases: int | None = None
     max_cpu: int | None = None
     max_mem_gb: int | None = None
@@ -106,6 +107,7 @@ def _account_principal(request: Request, row: dict[str, object]) -> Principal:
         admin=admin,
         role=role,
         max_priority=int(str(row["max_priority"])),
+        max_daily_cases=row.get("max_daily_cases"),  # type: ignore[arg-type]
         max_running_cases=row.get("max_running_cases"),  # type: ignore[arg-type]
         max_cpu=row.get("max_cpu"),  # type: ignore[arg-type]
         max_mem_gb=row.get("max_mem_gb"),  # type: ignore[arg-type]

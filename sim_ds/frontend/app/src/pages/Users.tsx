@@ -12,10 +12,8 @@ interface UserForm {
   status: "active" | "disabled";
   project: string;
   max_priority: string;
+  max_daily_cases: string;
   max_running_cases: string;
-  max_cpu: string;
-  max_mem_gb: string;
-  max_gpu: string;
 }
 
 function emptyForm(): UserForm {
@@ -27,10 +25,8 @@ function emptyForm(): UserForm {
     status: "active",
     project: "default",
     max_priority: "5",
-    max_running_cases: "",
-    max_cpu: "",
-    max_mem_gb: "",
-    max_gpu: ""
+    max_daily_cases: "",
+    max_running_cases: ""
   };
 }
 
@@ -68,10 +64,8 @@ export function Users() {
       status: user.status,
       project: user.project,
       max_priority: String(user.max_priority),
-      max_running_cases: user.max_running_cases?.toString() || "",
-      max_cpu: user.max_cpu?.toString() || "",
-      max_mem_gb: user.max_mem_gb?.toString() || "",
-      max_gpu: user.max_gpu?.toString() || ""
+      max_daily_cases: user.max_daily_cases?.toString() || "",
+      max_running_cases: user.max_running_cases?.toString() || ""
     });
   }
 
@@ -86,10 +80,8 @@ export function Users() {
         status: form.status,
         project: form.project,
         max_priority: Number(form.max_priority),
-        max_running_cases: optionalNumber(form.max_running_cases),
-        max_cpu: optionalNumber(form.max_cpu),
-        max_mem_gb: optionalNumber(form.max_mem_gb),
-        max_gpu: optionalNumber(form.max_gpu)
+        max_daily_cases: optionalNumber(form.max_daily_cases),
+        max_running_cases: optionalNumber(form.max_running_cases)
       };
       if (editing) {
         const body: Record<string, unknown> = { ...base };
@@ -147,12 +139,8 @@ export function Users() {
           <TextField label="项目" value={form.project} onChange={(value) => set("project", value)} />
           <div className="row">
             <TextField label="最高优先级 0-9" type="number" value={form.max_priority} onChange={(value) => set("max_priority", value)} />
+            <TextField label="每日最大 cases" type="number" value={form.max_daily_cases} onChange={(value) => set("max_daily_cases", value)} />
             <TextField label="最大并发 cases" type="number" value={form.max_running_cases} onChange={(value) => set("max_running_cases", value)} />
-          </div>
-          <div className="row">
-            <TextField label="CPU 额度" type="number" value={form.max_cpu} onChange={(value) => set("max_cpu", value)} />
-            <TextField label="内存 GB" type="number" value={form.max_mem_gb} onChange={(value) => set("max_mem_gb", value)} />
-            <TextField label="GPU" type="number" value={form.max_gpu} onChange={(value) => set("max_gpu", value)} />
           </div>
           {error && <div className="inline-error">{error}</div>}
           {notice && <div className="notice">{notice}</div>}
@@ -176,7 +164,7 @@ export function Users() {
                   </div>
                   <span className="muted">P≤{user.max_priority}</span>
                   <span className="muted">
-                    cases {user.max_running_cases ?? "∞"} · CPU {user.max_cpu ?? "∞"} · MEM {user.max_mem_gb ?? "∞"} · GPU {user.max_gpu ?? "∞"}
+                    每日 {user.max_daily_cases ?? "∞"} cases · 并发 {user.max_running_cases ?? "∞"}
                   </span>
                   <button className="btn tiny ghost" onClick={() => edit(user)}>编辑</button>
                 </div>

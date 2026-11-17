@@ -15,6 +15,7 @@ import { TaskSubmit } from "./pages/TaskSubmit";
 import { TaskSummaryPage } from "./pages/TaskSummaryPage";
 import { LoginPage } from "./pages/Login";
 import { Users } from "./pages/Users";
+import { Stats } from "./pages/Stats";
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/tasks/:taskId/summary" element={<TaskSummaryPage />} />
         <Route path="/queue" element={<QueueBoard />} />
+        <Route path="/stats" element={<Stats />} />
         <Route path="/playback" element={<PlaybackPage />} />
         <Route element={<AdminRoute />}>
           <Route path="/admin/users" element={<Users />} />

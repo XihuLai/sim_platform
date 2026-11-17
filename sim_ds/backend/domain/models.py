@@ -19,6 +19,7 @@ ALLOWED_ENV_KEYS = {
     "CASE_RUN_ID",
     "SIM_ENGINE",
     "METRIC_CONFIG",
+    "OUTPUT_DIR",
 }
 LEVELS = {"S0", "S1", "S2"}
 
@@ -349,6 +350,10 @@ class ScenarioCreate(BaseModel):
                     f"标签 {tag!r} 含非法字符；仅允许中文、字母、数字、下划线和短横线"
                 )
         return value
+
+
+class ScenarioCopy(BaseModel):
+    name: str | None = None
 
 
 class ScenarioUpdate(ScenarioCreate):

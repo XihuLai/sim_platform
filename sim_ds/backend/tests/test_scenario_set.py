@@ -149,3 +149,28 @@ async def test_private_and_public_set_visibility(
         await sets.get(private["set_id"], principal)
     assert exc.value.status == 404
     assert (await sets.get(private["set_id"], admin))["visibility"] == "private"
+
+
+async def test_admin_hard_delete_scenario_and_reference_guard(
+    db: Database, tmp_path: Path, principal: Principal
+) -> None:
+    await seed_metric(db)
+    store = FileStore(tmp_path)
+    scenarios = ScenarioService(db, store)
+    sets = SetService(db, store)
+    admin = Principal(user="admin", project="default", projects=("default",), admin=True, role="admin")
+
+    removable = await make_scenario(scenarios, principal, "可删除场景")
+    with pytest.raises(AppError) as denied:
+        await scenarios.archive(removable["scenario_id"], principal, hard=True)
+    assert denied.value.code == "FORBIDDEN"
+    await scenarios.archive(removable["scenario_id"], admin, hard=True)
+    with pytest.raises(AppError):
+        await scenarios.get(removable["scenario_id"], admin)
+
+    referenced = await make_scenario(scenarios, principal, "被引用场景")
+    set_info = await sets.create(set_payload([referenced]), principal)
+    await sets.freeze(set_info["set_id"], principal)
+    with pytest.raises(AppError) as blocked:
+        await scenarios.archive(referenced["scenario_id"], admin, hard=True)
+    assert blocked.value.code == "SCENARIO_REFERENCED"

@@ -22,9 +22,16 @@ function requestId(): string {
 export function TaskList() {
   const [status, setStatus] = useState<(typeof FILTERS)[number]["value"]>("all");
   const [search, setSearch] = useState("");
+  const [onlyMine, setOnlyMine] = useState(true);
   const tasks = useCursorList<Task>(
-    (cursor) => api.tasks.list({ status: status === "all" ? "" : status, search, cursor, size: 50 }),
-    [status, search]
+    (cursor) => api.tasks.list({
+      status: status === "all" ? "" : status,
+      search,
+      mine: onlyMine,
+      cursor,
+      size: 50
+    }),
+    [status, search, onlyMine]
   );
   const [message, setMessage] = useState<string | null>(null);
 
@@ -44,6 +51,10 @@ export function TaskList() {
       <PageHeader title="任务列表" subtitle="状态读 task_summary 预聚合；控制请求持久化，幂等重放" actions={<Link className="btn" to="/tasks/new">发起仿真</Link>} />
       <Card className="filters">
         <input placeholder="搜索任务名称或 ID" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <label className="check-row inline">
+          <input type="checkbox" checked={onlyMine} onChange={(event) => setOnlyMine(event.target.checked)} />
+          <span>只看我的任务</span>
+        </label>
         <button className="btn ghost" onClick={tasks.reload}>刷新</button>
         <span className="muted">已加载 {tasks.items.length} 条</span>
       </Card>

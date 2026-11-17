@@ -33,6 +33,7 @@ async def me(principal: Principal = Depends(get_principal)) -> dict[str, Any]:
         "project": principal.project,
         "admin": principal.admin,
         "max_priority": principal.max_priority,
+        "max_daily_cases": principal.max_daily_cases,
         "max_running_cases": principal.max_running_cases,
         "max_cpu": principal.max_cpu,
         "max_mem_gb": principal.max_mem_gb,

@@ -54,6 +54,20 @@ class TaskService(TaskReadMixin):
             expected = min(expected, payload.batch.max_cases)
         if expected <= 0:
             raise AppError("EMPTY_SET", "空场景集不能提交仿真任务", status=422)
+        if principal.max_daily_cases is not None:
+            used_row = await self.db.fetch_one(
+                "SELECT COALESCE(SUM(total_cases),0) AS used FROM sim_task "
+                "WHERE owner=:owner AND created_at >= date_trunc('day', now())",
+                {"owner": principal.user},
+            )
+            used = int(used_row["used"]) if used_row else 0
+            if used + expected > principal.max_daily_cases:
+                raise AppError(
+                    "DAILY_CASE_LIMIT",
+                    f"今日 case 额度不足：已提交 {used}，本次 {expected}，上限 {principal.max_daily_cases}",
+                    status=403,
+                    detail={"used": used, "requested": expected, "limit": principal.max_daily_cases},
+                )
         async with self.db.session() as session:
             fingerprint = await compute_fingerprint(
                 session,
@@ -162,10 +176,11 @@ class TaskService(TaskReadMixin):
         async with self.db.session() as session:
             await self._insert_task(
                 session, task_id, payload, principal, project, set_version, snapshot, fingerprint,
-                expected, "expanding", 0, created_at,
+                expected, "expanding", expected, created_at,
             )
             await session.execute(
-                text("INSERT INTO task_summary(task_id,total) VALUES (:id,0)"), {"id": task_id}
+                text("INSERT INTO task_summary(task_id,total) VALUES (:id,:total)"),
+                {"id": task_id, "total": expected},
             )
             await session.execute(
                 text(

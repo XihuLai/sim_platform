@@ -98,6 +98,11 @@ export const api = {
 
   health: () => request<{ status: string }>("/health"),
   overview: () => request<Overview>("/stats/overview"),
+  userStats: (days: number) => request<{
+    days: number;
+    items: Array<{ owner: string; tasks: number; cases: number; succeeded: number; passed: number }>;
+    totals: { tasks: number; cases: number; succeeded: number; passed: number };
+  }>(`/stats/users?days=${days}`),
   audit: (cursor?: string) => request<Page<Json>>(`/audit${query({ cursor })}`),
 
   tags: {
@@ -120,8 +125,11 @@ export const api = {
     create: (body: Json) => request<ScenarioDetail>("/scenarios", { method: "POST", body: JSON.stringify(body) }),
     update: (id: string, body: Json) =>
       request<ScenarioDetail>(`/scenarios/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    copy: (id: string, body: Json) =>
+      request<ScenarioDetail>(`/scenarios/${id}:copy`, { method: "POST", body: JSON.stringify(body) }),
     versions: (id: string) => request<{ items: Json[] }>(`/scenarios/${id}/versions`),
-    remove: (id: string) => request<Json>(`/scenarios/${id}`, { method: "DELETE" })
+    remove: (id: string, hard = false) =>
+      request<Json>(`/scenarios/${id}${hard ? "?hard=true" : ""}`, { method: "DELETE" })
   },
 
   sets: {
@@ -157,7 +165,7 @@ export const api = {
   },
 
   tasks: {
-    list: (params: { status?: string; priority?: number; search?: string; cursor?: string; size?: number }) =>
+    list: (params: { status?: string; priority?: number; search?: string; mine?: boolean; cursor?: string; size?: number }) =>
       request<Page<Task>>(`/tasks${query(params)}`),
     get: (id: string) => request<Task>(`/tasks/${id}`),
     submit: (body: Json) => request<Task>("/tasks", { method: "POST", body: JSON.stringify(body) }),

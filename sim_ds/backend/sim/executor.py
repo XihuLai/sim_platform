@@ -109,8 +109,14 @@ class LocalExecutor:
         started = await self.results.report_start(case["id"], int(case["attempt"]), self.settings.worker_id)
         if not started:
             return
-        output_dir = self.settings.data_dir / "outputs" / case["task_id"] / case["id"]
-        log_dir = self.settings.data_dir / "logs" / case["task_id"]
+        configured_output = runtime.env.get("OUTPUT_DIR")
+        if configured_output:
+            output_dir = Path(configured_output).expanduser()
+            if not output_dir.is_absolute():
+                output_dir = Path("/tmp") / output_dir
+        else:
+            output_dir = Path("/tmp") / case["task_id"] / case["id"]
+        log_dir = self.settings.data_dir / "logs" / case["task_id"] / case["id"]
         output_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
         scenario_path = str(self._scenario_path(scenario["file_uri"]))
@@ -122,7 +128,7 @@ class LocalExecutor:
             "LOG_DIR": str(log_dir),
         }
         args = [self._substitute(arg, substitutions) for arg in runtime.args]
-        command = self._command(task, args, scenario_path, output_dir, seed)
+        command = self._command(case, task, args, scenario_path, output_dir, log_dir, seed)
         env = self._environment(runtime, case, scenario_path, output_dir, log_dir, seed)
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -140,7 +146,7 @@ class LocalExecutor:
             await self._timeout(case, runtime, process, heartbeat)
             return
         heartbeat.cancel()
-        await self._finish(case, process.returncode or 0, stdout, stderr)
+        await self._finish(case, process.returncode or 0, stdout, stderr, output_dir)
 
     async def _timeout(self, case: dict[str, Any], runtime: RuntimeConfig, process: Any, heartbeat: Any) -> None:
         try:
@@ -160,8 +166,29 @@ class LocalExecutor:
             output_uri=f"outputs/{case['task_id']}/{case['id']}",
         )
 
-    async def _finish(self, case: dict[str, Any], code: int, stdout: bytes, stderr: bytes) -> None:
-        payload = self._parse(stdout)
+    async def _finish(
+        self, case: dict[str, Any], code: int, stdout: bytes, stderr: bytes, output_dir: Path
+    ) -> None:
+        eval_file = output_dir / "eval_result.json"
+        if eval_file.exists() and code in {0, 1}:
+            try:
+                result = json.loads(eval_file.read_text(encoding="utf-8"))
+                metrics = {}
+                for key, metric in (result.get("metrics") or {}).items():
+                    functions = list((metric.get("functions") or {}).values())
+                    value = functions[0].get("value") if functions else None
+                    metrics[key] = {"value": value, "pass": metric.get("pass")}
+                payload = {
+                    "status": result.get("status", "succeeded"),
+                    "result": result.get("result"),
+                    "reason": "" if result.get("result") == "pass" else "metric_threshold_exceeded",
+                    "metrics": metrics,
+                }
+                code = 0
+            except (ValueError, OSError):
+                payload = None
+        else:
+            payload = self._parse(stdout)
         status = "succeeded" if code == 0 and payload is not None else "failed"
         payload_reason = str(payload.get("reason") or "") if payload else ""
         if status == "succeeded":
@@ -201,10 +228,36 @@ class LocalExecutor:
             return
 
     def _command(
-        self, task: dict[str, Any], args: list[str], scenario_path: str, output_dir: Path, seed: str
+        self,
+        case: dict[str, Any],
+        task: dict[str, Any],
+        args: list[str],
+        scenario_path: str,
+        output_dir: Path,
+        log_dir: Path,
+        seed: str,
     ) -> list[str]:
         runtime = loads(task["runtime_config"]) or {}
         binary = str(runtime.get("binary_id", "log-resim"))
+        if binary == "mock_case":
+            return [
+                sys.executable,
+                str(Path(__file__).resolve().parents[2] / "backend" / "tests" / "test_mock_run_case.py"),
+                "--job-id", str(task["id"]),
+                "--task-id", str(case["id"]),
+                "--scenario-id", str(case["scenario_id"]),
+                "--scenario-version", str(case["scenario_version"]),
+                "--scenario-uri", scenario_path,
+                "--output-dir", str(output_dir),
+                "--log-dir", str(log_dir),
+                "--seed", seed,
+                "--priority", str(case.get("priority", 5)),
+                "--attempt", str(case.get("attempt", 0)),
+                "--worker-id", self.settings.worker_id,
+                "--binary-id", "mock_case",
+                "--params-json", json.dumps({"timeout_sec": runtime.get("timeout_sec", 60)}),
+                "--resource-json", json.dumps(runtime.get("resource", {})),
+            ]
         if binary == "mock":
             return [
                 sys.executable,
@@ -218,7 +271,10 @@ class LocalExecutor:
             ]
         if binary not in {"log-resim", "sim_engine"}:
             command = [sys.executable, binary] if binary.endswith(".py") else [binary]
-            return [*command, *args]
+            effective = args or [
+                "--scenario", scenario_path, "--out", str(output_dir), "--seed", seed,
+            ]
+            return [*command, *effective]
         if args:
             return [sys.executable, "-m", "backend.sim.engine_cli", *args]
         return [

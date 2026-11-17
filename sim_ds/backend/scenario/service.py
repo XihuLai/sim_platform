@@ -136,7 +136,8 @@ class ScenarioService(ScenarioSupport):
         await self._scenario_row(scenario_id, principal.project)
         rows = await self.db.fetch_all(
             """
-            SELECT version, file_uri, file_checksum, publish_state, expected_version, created_at, change_note
+            SELECT version, file_uri, file_checksum, publish_state, expected_version,
+                   created_by, created_at, change_note
             FROM scenario_version WHERE scenario_id=:sid ORDER BY version DESC
             """,
             {"sid": scenario_id},
@@ -228,18 +229,39 @@ class ScenarioService(ScenarioSupport):
         await self._finish_publish(scenario_id, version, published.checksum, principal, expected=current)
         return await self.get(scenario_id, principal, version)
 
+    async def copy(
+        self, scenario_id: str, principal: Principal, name: str | None = None
+    ) -> dict[str, Any]:
+        source = await self.get(scenario_id, principal)
+        payload = ScenarioCreate(
+            name=name or f"{source['name']}-副本",
+            source=source["source"],
+            time_window=source["time_window"],
+            metrics=source["metrics"],
+            tags=source.get("tags", []),
+            description=source.get("description", ""),
+            extra=source.get("extra", {}),
+            project=source.get("project") or principal.project,
+        )
+        return await self.create(payload, principal)
+
     async def archive(self, scenario_id: str, principal: Principal, *, hard: bool = False) -> dict[str, Any]:
         await self._scenario_row(scenario_id, principal.project)
-        frozen = await self.db.fetch_one(
-            """
-            SELECT 1 FROM scenario_set_member m
-            JOIN scenario_set_version v ON v.set_id=m.set_id AND v.version=m.set_version
-            WHERE m.scenario_id=:sid AND v.frozen_at IS NOT NULL LIMIT 1
-            """,
-            {"sid": scenario_id},
+        if hard and not principal.admin:
+            raise AppError("FORBIDDEN", "只有管理员可以永久删除场景", status=403)
+        reference_sql = (
+            "SELECT 1 FROM scenario_set_member m "
+            "JOIN scenario_set_version v ON v.set_id=m.set_id AND v.version=m.set_version "
+            "WHERE m.scenario_id=:sid"
         )
-        if frozen:
-            raise conflict("SCENARIO_REFERENCED", "场景被冻结场景集引用，不能删除")
+        if hard:
+            reference_sql += " LIMIT 1"
+        else:
+            reference_sql += " AND v.frozen_at IS NOT NULL LIMIT 1"
+        referenced = await self.db.fetch_one(reference_sql, {"sid": scenario_id})
+        if referenced:
+            message = "场景被场景集引用，不能删除" if hard else "场景被冻结场景集引用，不能删除"
+            raise conflict("SCENARIO_REFERENCED", message)
         async with self.db.session() as session:
             if hard:
                 await session.execute(text("DELETE FROM scenario_metric WHERE scenario_id=:sid"), {"sid": scenario_id})

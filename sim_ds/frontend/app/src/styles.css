@@ -241,6 +241,10 @@ code { font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; fon
 .bar-track span { display: block; height: 100%; background: linear-gradient(90deg, #2f6feb, #38bdf8); }
 .bars b { text-align: right; }
 
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #eef2f8; }
+.data-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.data-table tr:hover td { background: #f8fbff; }
 .big-number { font-size: 44px; font-weight: 800; letter-spacing: -1px; color: var(--brand); }
 .priority-list, .priority-line { display: grid; gap: 8px; }
 .priority-line { grid-template-columns: auto 1fr auto; align-items: center; font-size: 13px; }

@@ -43,8 +43,8 @@ export function MetricDefForm({
   const [busy, setBusy] = useState(false);
 
   async function save() {
-    if (!id.trim() || !name.trim() || !typeId) {
-      setError("Metric ID、名称、类型不能为空");
+    if (!name.trim() || !typeId) {
+      setError("名称、类型不能为空");
       return;
     }
     setBusy(true);
@@ -87,7 +87,13 @@ export function MetricDefForm({
       </div>
       <div className="grid two">
         <div>
-          <TextField label="Metric ID（如 safety.brake.hard）" value={id} onChange={setId} />
+          {initial ? (
+            <TextField label="Metric ID" value={id} onChange={setId} />
+          ) : (
+            <p className="muted">
+              Metric ID 按类型自动分配：舒适 1001+ / 合规 2001+ / 安全 3001+ / 效率 4001+ / 导航 5001+
+            </p>
+          )}
           <TextField label="名称" value={name} onChange={setName} />
           <div className="row">
             <TextField label={initial ? "当前版本（保存后 +1）" : "版本"} type="number" value={version} onChange={setVersion} />

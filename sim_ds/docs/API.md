@@ -101,6 +101,10 @@
 | GET | `/metrics/defs/{id}?version=` |
 
 五层：固定分类 → 类型树 → 模板 `env_schema` → 定义 `(id,version)` → 场景实例 `config`。
+Metric ID 由后端按分类自动分配：舒适 1001+ / 合规 2001+ / 安全 3001+ / 效率 4001+ / 导航 5001+。
+Scenario.metrics 保存 metric.json 形态的完整对象（id、name、desc 及规则 JSON），不再使用
+metric_def_id/metric_def_ver/config/enabled 包装。
+
 Metric 定义可直接携带 `trigger_functions` / `trigger_ops` / `functions` 规则 JSON；
 `trigger_templates` / `function_templates` 由其中的 `template_id` 自动派生。
 写入场景时执行结构校验 + 模板 JSON Schema 动态校验，错误为 `METRIC_CONFIG_INVALID`
@@ -137,7 +141,7 @@ Metric 定义可直接携带 `trigger_functions` / `trigger_ops` / `functions` �
   },
   "priority": 5,
   "batch": { "max_cases": 0, "shard_size": 1000 },
-  "metrics": ["safety.brake.hard"],
+  "metrics": [],
   "seed": 42
 }
 ```

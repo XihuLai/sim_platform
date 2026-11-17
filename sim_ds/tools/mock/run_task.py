@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 # 结果分布：pass 70% / fail 30%（可按需调）
 PASS_RATE = 0.7
@@ -49,7 +51,27 @@ METRIC_POOL = [
 
 
 def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def write_env_log(job_id: str, task_id: str | None) -> Path | None:
+    """Persist every executor-injected environment variable under LOG_DIR."""
+    log_dir = os.environ.get("LOG_DIR")
+    if not log_dir:
+        return None
+    case_id = os.environ.get("CASE_RUN_ID") or task_id or job_id
+    directory = Path(log_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"env-{case_id}.log"
+    lines = [
+        f"# time={_iso(time.time())}",
+        f"# job_id={job_id}",
+        f"# task_id={task_id or ''}",
+        f"# cwd={os.getcwd()}",
+    ]
+    lines.extend(f"{key}={os.environ[key]}" for key in sorted(os.environ))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def run_one_case(job_id: str, task_id: str | None, seed: int | None) -> dict:
@@ -125,7 +147,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=None, help="输出文件路径；缺省写 stdout")
     args = ap.parse_args(argv)
 
+    env_log = write_env_log(args.job_id, args.task_id)
     report = run_one_case(args.job_id, args.task_id, args.seed)
+    if env_log is not None:
+        report["env_log"] = str(env_log)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:

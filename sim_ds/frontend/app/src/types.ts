@@ -41,6 +41,22 @@ export interface TagOption {
   usage: number;
 }
 
+export interface ScenarioMetric {
+  id: string;
+  name: string;
+  desc?: string;
+  business_type?: string;
+  run_mode?: "async" | "sync";
+  level?: string;
+  is_global?: boolean;
+  trigger_functions?: MetricRuleFunction[];
+  trigger_ops?: Array<"AND" | "OR">;
+  functions?: MetricRuleFunction[];
+  ops?: Array<"AND" | "OR">;
+  ret?: "pass" | "fail";
+  action?: string;
+}
+
 export interface ScenarioSource {
   type: string;
   log_id: string;
@@ -53,7 +69,7 @@ export interface ScenarioDetail extends Scenario {
   scenario_id?: string;
   source: ScenarioSource;
   time_window: { start_ts: number; end_ts: number; trigger_ts: number };
-  metrics: MetricInstance[];
+  metrics: ScenarioMetric[];
   extra: Record<string, unknown>;
   file_checksum: string;
   publish_state: string;

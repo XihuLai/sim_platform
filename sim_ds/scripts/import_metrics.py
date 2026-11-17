@@ -20,6 +20,15 @@ from backend.shared.auth import Principal
 from backend.shared.config import load_settings
 from backend.shared.db import Database
 
+METRIC_ID_MAP = {
+    "18": "3001",
+    "33": "5001",
+    "38": "1001",
+    "39": "2001",
+    "920": "5002",
+    "37139": "2002",
+}
+
 TYPE_BY_ID = {
     "18": "safety.brake",
     "33": "navigation.lane",
@@ -102,7 +111,7 @@ async def import_file(
     await ensure_templates(service, metrics, principal)
     imported = 0
     for item in metrics:
-        metric_id = str(item["id"])
+        metric_id = METRIC_ID_MAP.get(str(item["id"]), str(item["id"]))
         type_id = TYPE_BY_ID.get(metric_id)
         if type_id is None:
             type_id = "safety.brake"

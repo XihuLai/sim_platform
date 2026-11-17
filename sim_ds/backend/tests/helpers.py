@@ -7,7 +7,7 @@ from typing import Any
 from backend.domain.models import (
     RuntimeConfig,
     ScenarioCreate,
-    ScenarioMetricInstance,
+    ScenarioMetric,
     SetCreate,
     SetMember,
     SimTaskCreate,
@@ -58,7 +58,7 @@ async def seed_metric(db: Database) -> None:
         """
         INSERT INTO metric_def(id,version,type_id,name,level,business_type,trigger_templates,trigger_ops,
           function_templates,ops,ret,action,description)
-        VALUES ('safety.brake.hard',1,'safety.brake','急刹','S0','dpc',CAST(:tt AS JSONB),CAST(:to AS JSONB),
+        VALUES ('3001',1,'safety.brake','急刹','S0','dpc',CAST(:tt AS JSONB),CAST(:to AS JSONB),
           CAST(:ft AS JSONB),CAST(:ops AS JSONB),'pass','not_stop_sim','test')
         ON CONFLICT DO NOTHING
         """,
@@ -78,8 +78,13 @@ def scenario_payload(name: str = "场景A", project: str = "default") -> Scenari
         source={"type": "record", "log_id": "log-1", "format": "mcap"},
         time_window={"start_ts": 0, "end_ts": 180000, "trigger_ts": 60000},
         metrics=[
-            ScenarioMetricInstance(
-                metric_def_id="safety.brake.hard", metric_def_ver=1, config=METRIC_CONFIG
+            ScenarioMetric(
+                id="3001",
+                name="急刹",
+                desc="test",
+                business_type="dpc",
+                run_mode="async",
+                **METRIC_CONFIG,
             )
         ],
         tags=["junction"],
@@ -119,7 +124,7 @@ def task_payload(set_info: dict[str, Any], name: str = "任务A") -> SimTaskCrea
         set_id=set_info["set_id"],
         set_version=set_info["version"],
         runtime=runtime(),
-        metrics=["safety.brake.hard"],
+        metrics=["3001"],
         seed=11,
     )
 

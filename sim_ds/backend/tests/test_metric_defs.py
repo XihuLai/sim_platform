@@ -44,3 +44,13 @@ async def test_metric_definition_stores_rule_json(
     active = await service.defs()
     assert all(item["id"] != "safety.test.json" for item in active)
     assert (await service.get_def("safety.test.json", 2))["status"] == "deprecated"
+
+
+async def test_metric_id_allocated_in_safety_range(db: Database, principal: Principal) -> None:
+    await seed_metric(db)
+    service = MetricService(db)
+    created = await service.create_def(
+        MetricDef(id="", version=1, type_id="safety.brake", name="自动编号"),
+        principal,
+    )
+    assert created["id"] == "3002"

@@ -25,13 +25,13 @@ METRIC_TYPES = [
     MetricType(id="safety.brake", category_id="safety", name="制动类", sort_order=1),
     MetricType(id="safety.collision", category_id="safety", name="碰撞类", sort_order=2),
     MetricType(id="comfort.ride", category_id="comfort", name="乘坐舒适", sort_order=1),
-    MetricType(id="efficiency.speed", category_id="efficiency", name="通行效率", sort_order=1),
+    MetricType(id="4001", category_id="efficiency", name="通行效率", sort_order=1),
     MetricType(id="navigation.lane", category_id="navigation", name="车道保持", sort_order=1),
 ]
 
 METRIC_DEFS = [
     MetricDef(
-        id="safety.brake.hard",
+        id="3001",
         version=1,
         type_id="safety.brake",
         name="急刹",
@@ -45,7 +45,7 @@ METRIC_DEFS = [
         description="纵向急刹检测",
     ),
     MetricDef(
-        id="safety.collision.rate",
+        id="3002",
         version=1,
         type_id="safety.collision",
         name="碰撞风险",
@@ -58,7 +58,7 @@ METRIC_DEFS = [
         description="近碰与碰撞风险",
     ),
     MetricDef(
-        id="comfort.jerk",
+        id="1002",
         version=1,
         type_id="comfort.ride",
         name="加加速度",
@@ -71,9 +71,9 @@ METRIC_DEFS = [
         description="舒适性冲击",
     ),
     MetricDef(
-        id="efficiency.speed",
+        id="4001",
         version=1,
-        type_id="efficiency.speed",
+        type_id="4001",
         name="平均车速",
         level="S2",
         trigger_templates=[{"template_id": "9", "slot": 0, "required": True}],
@@ -189,12 +189,14 @@ async def make_scenarios(
                 time_window={"start_ts": 0, "end_ts": 180000, "trigger_ts": 60000},
                 metrics=[
                     {
-                        "metric_def_id": "safety.brake.hard",
-                        "metric_def_ver": 1,
-                        "alias": None,
-                        "config": metric_config("S0" if index % 4 else "S1"),
-                        "enabled": True,
-                        "extra": {},
+                        "id": "3001",
+                        "name": "急刹",
+                        "desc": "",
+                        "business_type": "dpc",
+                        "run_mode": "async",
+                        "level": "S0" if index % 4 else "S1",
+                        "is_global": False,
+                        **metric_config("S0" if index % 4 else "S1"),
                     }
                 ],
                 tags=tags_pool[index % len(tags_pool)],

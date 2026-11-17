@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.domain.models import MetricConfig, ScenarioMetricInstance
 from backend.scenario.common import load_metric_def, loads, row_time, scenario_uri
 from backend.scenario.metrics import validate_instance, validate_required_templates
 from backend.shared.db import Database, dumps
@@ -54,7 +55,7 @@ class ScenarioSupport:
     ) -> None:
         await session.execute(text("DELETE FROM scenario_metric WHERE scenario_id=:sid"), {"sid": scenario_id})
         for item in metrics:
-            await self._validate_metric(session, item)
+            instance = await self._metric_instance(session, item)
             await session.execute(
                 text(
                     """
@@ -64,12 +65,12 @@ class ScenarioSupport:
                 ),
                 {
                     "sid": scenario_id,
-                    "did": item["metric_def_id"],
-                    "dver": item["metric_def_ver"],
-                    "alias": item["alias"],
-                    "config": dumps(item["config"]),
-                    "enabled": item["enabled"],
-                    "extra": dumps(item["extra"]),
+                    "did": instance.metric_def_id,
+                    "dver": instance.metric_def_ver,
+                    "alias": instance.alias,
+                    "config": dumps(instance.config.model_dump(mode="json")),
+                    "enabled": instance.enabled,
+                    "extra": dumps(instance.extra),
                 },
             )
 
@@ -92,13 +93,92 @@ class ScenarioSupport:
                 {"sid": scenario_id, "name": name},
             )
 
-    async def _validate_metric(self, session: AsyncSession, item: dict[str, Any]) -> None:
-        from backend.domain.models import ScenarioMetricInstance
-
-        instance = ScenarioMetricInstance.model_validate(item)
-        definition = await _definition(session, item["metric_def_id"], item["metric_def_ver"])
+    async def _metric_instance(
+        self, session: AsyncSession, item: dict[str, Any]
+    ) -> ScenarioMetricInstance:
+        metric_id = str(item.get("id") or "")
+        if not metric_id:
+            raise AppError("METRIC_ID_REQUIRED", "Scenario metric 缺少 id", status=422)
+        row = await session.execute(
+            text(
+                "SELECT version FROM metric_def WHERE id=:id AND status='active' "
+                "ORDER BY version DESC LIMIT 1"
+            ),
+            {"id": metric_id},
+        )
+        found = row.first()
+        if found is None:
+            raise AppError("METRIC_DEF_NOT_FOUND", f"Metric 定义 {metric_id} 不存在", status=422)
+        version = int(found[0])
+        config = MetricConfig(
+            trigger_functions=item.get("trigger_functions", []),
+            trigger_ops=item.get("trigger_ops", []),
+            functions=item.get("functions", []),
+            ops=item.get("ops", []),
+            ret=item.get("ret", "pass"),
+            action=item.get("action", "not_stop_sim"),
+            level=item.get("level", "S0"),
+            is_global=item.get("is_global", False),
+        )
+        instance = ScenarioMetricInstance(
+            metric_def_id=metric_id,
+            metric_def_ver=version,
+            alias=None,
+            config=config,
+            enabled=True,
+            extra={},
+        )
+        definition = await _definition(session, metric_id, version)
         await validate_instance(session, instance)
         validate_required_templates(definition, instance.config)
+        return instance
+
+    async def _normalize_metrics(self, payload: dict[str, Any]) -> None:
+        normalized: list[dict[str, Any]] = []
+        for item in payload.get("metrics", []):
+            if "metric_def_id" not in item:
+                normalized.append(item)
+                continue
+            legacy_id = str(item.get("metric_def_id"))
+            metric_id = LEGACY_METRIC_IDS.get(legacy_id, legacy_id)
+            try:
+                async with self.db.session() as lookup:
+                    definition = await _definition(
+                        lookup, metric_id, int(item.get("metric_def_ver", 1))
+                    )
+            except Exception:
+                normalized.append(
+                    {
+                        "id": metric_id,
+                        "name": metric_id,
+                        "desc": "",
+                        "business_type": "dpc",
+                        "run_mode": "async",
+                        "level": "S0",
+                        "is_global": False,
+                        **item.get("config", {}),
+                    }
+                )
+                continue
+            config = item.get("config", {})
+            normalized.append(
+                {
+                    "id": metric_id,
+                    "name": definition.name,
+                    "desc": definition.description,
+                    "business_type": definition.business_type,
+                    "run_mode": definition.run_mode,
+                    "level": config.get("level", definition.level),
+                    "is_global": config.get("is_global", definition.is_global),
+                    "trigger_functions": config.get("trigger_functions", []),
+                    "trigger_ops": config.get("trigger_ops", []),
+                    "functions": config.get("functions", []),
+                    "ops": config.get("ops", []),
+                    "ret": config.get("ret", definition.ret),
+                    "action": config.get("action", definition.action),
+                }
+            )
+        payload["metrics"] = normalized
 
     def _list_item(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -214,3 +294,16 @@ async def _definition(session: AsyncSession, metric_def_id: str, version: int) -
         )
     return definition
 
+
+LEGACY_METRIC_IDS = {
+    "safety.brake.hard": "3001",
+    "safety.collision.rate": "3002",
+    "comfort.jerk": "1002",
+    "efficiency.speed": "4001",
+    "38": "1001",
+    "39": "2001",
+    "37139": "2002",
+    "18": "3001",
+    "33": "5001",
+    "920": "5002",
+}

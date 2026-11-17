@@ -17,6 +17,8 @@ async def test_scenario_version_publish_and_conflict(db: Database, tmp_path: Pat
     service = ScenarioService(db, store)
     created = await make_scenario(service, principal)
     assert created["version"] == 1
+    assert created["metrics"][0]["id"] == "3001"
+    assert "metric_def_id" not in created["metrics"][0]
     assert store.verify(f"scenarios/{created['scenario_id']}/v1.json", created["file_checksum"])
 
     stale = ScenarioUpdate(
@@ -26,9 +28,12 @@ async def test_scenario_version_publish_and_conflict(db: Database, tmp_path: Pat
         time_window={"start_ts": 0, "end_ts": 180000, "trigger_ts": 60000},
         metrics=[
             {
-                "metric_def_id": "safety.brake.hard",
-                "metric_def_ver": 1,
-                "config": METRIC_CONFIG,
+                "id": "3001",
+                "name": "急刹",
+                "desc": "test",
+                "business_type": "dpc",
+                "run_mode": "async",
+                **METRIC_CONFIG,
             }
         ],
     )

@@ -95,8 +95,13 @@ metric_category（固定 5 类：comfort/compliance/safety/efficiency/navigation
   function_templates。旧格式（仅模板引用）继续兼容。
 
 ### 3.4 scenario_metric
-- 字段：scenario_id、metric_def_id、metric_def_ver、alias、config JSONB、
-  enabled、extra。
+- Scenario JSON 的 `metrics[]` 直接保存 metric.json 形态的完整对象：
+  id/name/desc + business_type/run_mode/level/is_global + trigger_functions/
+  trigger_ops/functions/ops + ret/action。
+- DB `scenario_metric` 仅作查询/指纹投影，仍保存 metric_def_id、metric_def_ver、
+  config；文件不再保存这些包装字段。
+- Metric ID 使用分类数字段：comfort 1001+、compliance 2001+、safety 3001+、
+  efficiency 4001+、navigation 5001+；新定义自动递增。
 - config 存完整规则实例：
   { trigger_functions[], trigger_ops[], functions[], ops[], ret, action,
     level, is_global }。

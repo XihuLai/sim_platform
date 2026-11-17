@@ -6,6 +6,7 @@ import { Card, DataState, PageHeader, TextField } from "../components/ui";
 import { SourceEditor, type SourceDraft } from "../components/SourceEditor";
 import { buildMetricConfig } from "../metricConfig";
 import { MetricConfigEditor, toEditable, type EditableMetric } from "../components/MetricConfigEditor";
+import { scenarioMetricFromEditable } from "../scenarioMetrics";
 import { TAG_RULE_TEXT, tagValidationError } from "../tags";
 
 export function ScenarioCreate() {
@@ -54,11 +55,11 @@ export function ScenarioCreate() {
 
   const tagError = tagValidationError(tags);
   const payload = useMemo(() => {
-    const metricPayload = metrics.map(({ configText, ...metric }) => {
+    const metricPayload = metrics.map((metric) => {
       try {
-        return { ...metric, config: JSON.parse(configText) };
+        return scenarioMetricFromEditable(metric, catalog.data?.defs || []);
       } catch {
-        return { ...metric, config: "<invalid JSON>" };
+        return { id: metric.metric_def_id, name: metric.metric_def_id, desc: "" };
       }
     });
     return {
@@ -77,7 +78,7 @@ export function ScenarioCreate() {
       tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
       extra: {}
     };
-  }, [name, description, source, startTs, endTs, trigger, tags, metrics]);
+  }, [name, description, source, startTs, endTs, trigger, tags, metrics, catalog.data]);
 
   async function save() {
     if (tagError) {
@@ -90,7 +91,9 @@ export function ScenarioCreate() {
     }
     let metricPayload: unknown[];
     try {
-      metricPayload = metrics.map(({ configText, ...metric }) => ({ ...metric, config: JSON.parse(configText) }));
+      metricPayload = metrics.map((metric) =>
+        scenarioMetricFromEditable(metric, catalog.data?.defs || [])
+      );
     } catch {
       setError("Metric config JSON 格式错误");
       return;

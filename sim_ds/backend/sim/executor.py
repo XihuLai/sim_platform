@@ -205,8 +205,6 @@ class LocalExecutor:
     ) -> list[str]:
         runtime = loads(task["runtime_config"]) or {}
         binary = str(runtime.get("binary_id", "log-resim"))
-        if binary not in {"log-resim", "sim_engine", "mock"}:
-            binary = "log-resim"
         if binary == "mock":
             return [
                 sys.executable,
@@ -218,6 +216,9 @@ class LocalExecutor:
                 "--seed",
                 self._mock_seed(seed, output_dir.name),
             ]
+        if binary not in {"log-resim", "sim_engine"}:
+            command = [sys.executable, binary] if binary.endswith(".py") else [binary]
+            return [*command, *args]
         if args:
             return [sys.executable, "-m", "backend.sim.engine_cli", *args]
         return [

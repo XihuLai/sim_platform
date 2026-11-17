@@ -22,6 +22,13 @@ from backend.shared.db import Database, affected, dumps
 from backend.shared.errors import AppError, conflict, not_found
 
 FIXED_CATEGORIES = ("comfort", "compliance", "safety", "efficiency", "navigation")
+CATEGORY_BASE = {
+    "comfort": 1000,
+    "compliance": 2000,
+    "safety": 3000,
+    "efficiency": 4000,
+    "navigation": 5000,
+}
 
 
 class MetricService:
@@ -209,7 +216,32 @@ class MetricService:
                 row[key] = loads(row[key])
         return rows
 
+    async def next_metric_id(self, type_id: str) -> str:
+        row = await self.db.fetch_one(
+            "SELECT category_id FROM metric_type WHERE id=:id", {"id": type_id}
+        )
+        if row is None:
+            raise AppError("TYPE_NOT_FOUND", f"Metric 类型 {type_id} 不存在", status=422)
+        base = CATEGORY_BASE.get(row["category_id"])
+        if base is None:
+            raise AppError("TYPE_NOT_FOUND", f"未知 Metric 分类 {row['category_id']}", status=422)
+        current = await self.db.fetch_one(
+            """
+            SELECT COALESCE(MAX(CAST(id AS INTEGER)), :base) AS max_id
+            FROM metric_def
+            WHERE id ~ '^[0-9]+$' AND CAST(id AS INTEGER) BETWEEN :lower AND :upper
+            """,
+            {"base": base, "lower": base + 1, "upper": base + 999},
+        )
+        next_id = int(current["max_id"]) + 1 if current else base + 1
+        if next_id > base + 999:
+            raise AppError("METRIC_ID_EXHAUSTED", "该分类 Metric ID 已用尽", status=409)
+        return str(next_id)
+
     async def create_def(self, body: MetricDef, principal: Principal) -> dict[str, Any]:
+        if not body.id:
+            metric_id = await self.next_metric_id(body.type_id)
+            body = MetricDef.model_validate({**body.model_dump(), "id": metric_id})
         async with self.db.session() as session:
             await validate_def_templates(session, body)
             await self._validate_rule_config(session, body)

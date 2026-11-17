@@ -96,6 +96,30 @@ class ScenarioMetricInstance(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class ScenarioMetric(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    name: str
+    desc: str = ""
+    business_type: str = "dpc"
+    run_mode: Literal["async", "sync"] = "async"
+    level: str = "S0"
+    is_global: bool = False
+    trigger_functions: list[RuleFunction] = Field(default_factory=list)
+    trigger_ops: list[Literal["AND", "OR"]] = Field(default_factory=list)
+    functions: list[RuleFunction] = Field(default_factory=list)
+    ops: list[Literal["AND", "OR"]] = Field(default_factory=list)
+    ret: Literal["pass", "fail"] = "pass"
+    action: str = "not_stop_sim"
+
+    @field_validator("level")
+    @classmethod
+    def valid_level(cls, value: str) -> str:
+        if value not in LEVELS:
+            raise ValueError(f"level 必须是 {sorted(LEVELS)} 之一")
+        return value
+
+
 class Scenario(BaseModel):
     model_config = ConfigDict(extra="allow")
     scenario_id: str
@@ -103,7 +127,7 @@ class Scenario(BaseModel):
     version: int = 1
     source: ScenarioSource
     time_window: TimeWindow
-    metrics: list[ScenarioMetricInstance] = Field(default_factory=list)
+    metrics: list[ScenarioMetric] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     description: str = ""
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -253,7 +277,7 @@ class TemplateRef(BaseModel):
 
 
 class MetricDef(BaseModel):
-    id: str
+    id: str = ""
     version: int = 1
     type_id: str
     name: str
@@ -308,7 +332,7 @@ class ScenarioCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     source: ScenarioSource
     time_window: TimeWindow
-    metrics: list[ScenarioMetricInstance] = Field(default_factory=list)
+    metrics: list[ScenarioMetric] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     description: str = ""
     extra: dict[str, Any] = Field(default_factory=dict)

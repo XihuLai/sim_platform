@@ -5,6 +5,7 @@
 > 契约变更只允许向后兼容新增；破坏性变更须开新主版本并在 CHANGELOG 高亮。
 
 ## 0. 版本变更
+- v2.3 : Metric ID 改为分类数字段（舒适 1001+/合规 2001+/安全 3001+/效率 4001+/导航 5001+），新增自动递增；Scenario.metrics 改为 metric.json 完整对象（id/name/desc + 规则），移除 enabled/metric_def_id/metric_def_ver/config 包装层。
 - v2.2 : metric_def 支持直接保存 `trigger_functions` / `trigger_ops` / `functions` 规则 JSON（含 env），并按其中 template_id 自动派生模板引用；Metric 管理页展示定义 JSON。
 - v2.1 : 统一 scenario_metric.config 不含 level/is_global（从 metric_def 查）；红线分阻塞级/建议级。
 - v2.0（BREAKING）：统一异步展开门槛和状态迁移权责；定义快照发布与恢复、生产项目隔离、暂停/故障语义、复现输入及分区归档查询边界。
@@ -155,11 +156,12 @@
   "ret": "pass", "action": "not_stop_sim",
   "status":"active", "description":"" }
 
-// 5) scenario_metric（场景实例，config 存完整规则）
-{ "scenario_id":"", "metric_def_id":"", "metric_def_ver":1,
-  "alias":null,
-  "config": { /* 见 2.1 metrics[].config */ },
-  "enabled":true, "extra":{} }
+// 5) Scenario.metrics（场景文件内嵌完整 metric 对象，同 metric.json）
+{ "id":"3001", "name":"急刹", "desc":"",
+  "business_type":"dpc", "run_mode":"async", "level":"S0", "is_global":false,
+  "trigger_functions":[], "trigger_ops":["AND"], "functions":[], "ops":[],
+  "ret":"pass", "action":"not_stop_sim" }
+// DB scenario_metric 仅为查询投影；文件中不再保存 metric_def_id/ver/config/enabled 包装层
 ```
 
 ### 2.4 RuntimeConfig / SimTask / CaseRun

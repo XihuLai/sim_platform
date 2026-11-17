@@ -23,7 +23,10 @@ def _metrics(scenario: dict[str, Any], seed: str, requested: list[str]) -> dict[
     for item in scenario.get("metrics", []):
         if item.get("enabled", True):
             alias = item.get("alias")
-            key = f"{item['metric_def_id']}@{alias}" if alias else item["metric_def_id"]
+            metric_id = item.get("id") or item.get("metric_def_id")
+            if not metric_id:
+                continue
+            key = f"{metric_id}@{alias}" if alias else str(metric_id)
             if key not in keys:
                 keys.append(key)
     if not keys:

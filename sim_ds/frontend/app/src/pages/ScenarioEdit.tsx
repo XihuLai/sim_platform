@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAsync } from "../hooks";
-import { MetricConfigEditor, toEditable, type EditableMetric } from "../components/MetricConfigEditor";
+import { MetricConfigEditor, type EditableMetric } from "../components/MetricConfigEditor";
+import { editableFromScenario, scenarioMetricFromEditable } from "../scenarioMetrics";
 import { ScenarioEditorForm, initialScenarioForm, type ScenarioFormState } from "../components/ScenarioEditorForm";
 import { Card, DataState, PageHeader, StatusBadge, formatTime } from "../components/ui";
 import { tagValidationError } from "../tags";
@@ -36,17 +37,21 @@ export function ScenarioEdit() {
         trigger_ts: String(detail.data.time_window.trigger_ts)
       }
     });
-    setMetrics(detail.data.metrics.map(toEditable));
     setExtraText(JSON.stringify(detail.data.extra || {}, null, 2));
   }, [detail.data]);
 
+  useEffect(() => {
+    if (!detail.data) return;
+    setMetrics(detail.data.metrics.map((metric) => editableFromScenario(metric, catalog.data?.defs || [])));
+  }, [detail.data, catalog.data]);
+
   const nextVersion = (detail.data?.version || 0) + 1;
   const preview = useMemo(() => {
-    let parsedMetrics: unknown = metrics.map(({ configText, ...metric }) => {
+    const parsedMetrics = metrics.map((metric) => {
       try {
-        return { ...metric, config: JSON.parse(configText) };
+        return scenarioMetricFromEditable(metric, catalog.data?.defs || []);
       } catch {
-        return { ...metric, config: "<invalid JSON>" };
+        return { id: metric.metric_def_id, name: metric.metric_def_id, desc: "" };
       }
     });
     let extra: unknown = extraText;
@@ -70,7 +75,7 @@ export function ScenarioEdit() {
       metrics: parsedMetrics,
       extra
     };
-  }, [scenarioId, nextVersion, form, metrics, extraText]);
+  }, [scenarioId, nextVersion, form, metrics, extraText, catalog.data]);
 
   async function save() {
     if (!detail.data) return;
@@ -101,7 +106,9 @@ export function ScenarioEdit() {
           end_ts: Number(form.timeWindow.end_ts),
           trigger_ts: Number(form.timeWindow.trigger_ts)
         },
-        metrics: metrics.map(({ configText, ...metric }) => ({ ...metric, config: JSON.parse(configText) })),
+        metrics: metrics.map((metric) =>
+          scenarioMetricFromEditable(metric, catalog.data?.defs || [])
+        ),
         tags: form.tags.split(",").map((item) => item.trim()).filter(Boolean),
         extra
       });

@@ -123,6 +123,7 @@ class ScenarioService(ScenarioSupport):
             raise
         if isinstance(payload.get("source"), dict):
             payload["source"].pop("extract", None)
+        await self._normalize_metrics(payload)
         payload["id"] = scenario_id
         payload["scenario_id"] = scenario_id
         payload["tags"] = await self._scenario_tags(scenario_id)

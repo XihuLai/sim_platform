@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## Round 023 — 引擎下拉与 Mock 环境日志 — 2026-11-17
+- [fix] Binary 引擎下拉改为受控浮层，固定显示在输入框下方，支持输入自定义 binary 路径
+- [feat] tools/mock/run_task.py 将执行器注入的全部环境变量写入 LOG_DIR/env-{case_run_id}.log
+- [test] 跑通 6-case mock 任务并生成 6 份环境日志，覆盖 TASK_ID/CASE_RUN_ID/SCENARIO_URI/OUTPUT_DIR/LOG_DIR/SEED 等
+
+## Round 022 — 发起仿真 RuntimeConfig 调整 — 2026-11-17
+- [feat] 发起仿真页移除 Metric keys 输入，Metric 由 Scenario 内嵌配置驱动
+- [feat] Binary 改为可输入引擎名或自定义本地 binary 路径；`.py` 自动用 Python 执行
+- [docs] 页面增加 args 模板变量说明：SCENARIO_URI/OUTPUT_DIR/SEED/LOG_DIR
+- [test] 自定义 binary 任务实测执行成功
+
+## Round 021 — 数字 Metric ID 与 Scenario 内嵌 Metric — 2026-11-13
+- [breaking] Metric ID 改为分类数字段并自动递增：1001+/2001+/3001+/4001+/5001+
+- [data] 现有 Metric 重编号到数字段，删除测试指标并更新 Scenario DB 投影
+- [breaking] Scenario.metrics 改为 metric.json 完整对象，移除 enabled/metric_def_id/metric_def_ver/config 包装
+- [feat] 场景创建/编辑直接编辑内嵌 Metric 配置；旧版本文件读取时自动归一化
+- [feat] Metric 新建不填 ID，后端按类型分类自动分配
+- [test] 增加数值 ID 分配、Scenario 新 metrics 结构断言；60 passed
+
 ## Round 020 — 侧边栏路由高亮修复 — 2026-11-13
 - [fix] 侧边栏所有菜单改为精确匹配，访问 /scenarios/new 时只高亮“场景创建”，不再同时高亮“场景列表”
 - [fix] /tasks/new、/tasks/:id 也不会误高亮任务列表

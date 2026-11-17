@@ -26,6 +26,12 @@ export function TaskSubmit() {
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("5");
   const [binary, setBinary] = useState("log-resim");
+  const [engineOpen, setEngineOpen] = useState(false);
+  const engines = [
+    { value: "log-resim", label: "内置确定性引擎" },
+    { value: "mock", label: "Mock 执行器" },
+    { value: "sim_engine", label: "sim_engine" }
+  ];
   const [args, setArgs] = useState("--scenario ${SCENARIO_URI}\n--out ${OUTPUT_DIR}");
   const [envText, setEnvText] = useState("SIM_SEED=42\nLOG_LEVEL=info");
   const [cpu, setCpu] = useState("1");
@@ -33,7 +39,6 @@ export function TaskSubmit() {
   const [gpu, setGpu] = useState("0");
   const [timeout, setTimeoutSec] = useState("120");
   const [retry, setRetry] = useState("1");
-  const [metrics, setMetrics] = useState("safety.brake.hard");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -58,7 +63,7 @@ export function TaskSubmit() {
           timeout_sec: Number(timeout),
           retry: { max: Number(retry), on: ["timeout", "worker_lost"] }
         },
-        metrics: metrics.split(",").map((item) => item.trim()).filter(Boolean),
+        metrics: [],
         batch: { max_cases: 0, shard_size: 1000 },
         seed: Number(envText.match(/SIM_SEED=(\d+)/)?.[1] || 42)
       });
@@ -95,7 +100,6 @@ export function TaskSubmit() {
               <TextField label="超时秒" value={timeout} onChange={setTimeoutSec} type="number" />
               <TextField label="重试次数" value={retry} onChange={setRetry} type="number" />
             </div>
-            <TextField label="Metric keys（逗号分隔）" value={metrics} onChange={setMetrics} />
             {selected && selected.member_count > 500 && (
               <div className="notice">该集合 {selected.member_count} 个 case，提交后将进入异步 expanding，由后台按 1000/批展开。</div>
             )}
@@ -103,17 +107,56 @@ export function TaskSubmit() {
           <Card>
             <h2>RuntimeConfig</h2>
             <label className="field">
-              <span>Binary ID</span>
-              <select value={binary} onChange={(event) => setBinary(event.target.value)}>
-                <option value="log-resim">log-resim（内置确定性引擎）</option>
-                <option value="mock">mock（tools/mock/run_task.py）</option>
-                <option value="sim_engine">sim_engine</option>
-              </select>
+              <span>Binary / 引擎地址</span>
+              <div
+                className="engine-picker"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setEngineOpen(false);
+                  }
+                }}
+              >
+                <div className="engine-input-row">
+                  <input
+                    value={binary}
+                    onFocus={() => setEngineOpen(true)}
+                    onChange={(event) => setBinary(event.target.value)}
+                    placeholder="log-resim / mock / /opt/sim/bin/engine"
+                  />
+                  <button type="button" className="btn tiny ghost" onClick={() => setEngineOpen((value) => !value)}>
+                    ▾
+                  </button>
+                </div>
+                {engineOpen && (
+                  <div className="engine-dropdown">
+                    {engines.map((engine) => (
+                      <button
+                        type="button"
+                        key={engine.value}
+                        className={engine.value === binary ? "active" : ""}
+                        onClick={() => {
+                          setBinary(engine.value);
+                          setEngineOpen(false);
+                        }}
+                      >
+                        <strong>{engine.value}</strong>
+                        <small>{engine.label}</small>
+                      </button>
+                    ))}
+                    <p className="muted">也可以直接输入本地可执行文件路径。</p>
+                  </div>
+                )}
+              </div>
             </label>
             <label className="field">
               <span>Args（每行一个，支持模板变量）</span>
               <textarea rows={4} value={args} onChange={(event) => setArgs(event.target.value)} />
             </label>
+            <p className="muted">
+              Args 是传给引擎的命令行参数；可用的模板变量：
+              {"${SCENARIO_URI}"} 场景文件路径、{"${OUTPUT_DIR}"} 当前 case 输出目录、
+              {"${SEED}"} 随机种子、{"${LOG_DIR}"} 任务日志目录。执行器会按 case 注入实际值。
+            </p>
             <label className="field">
               <span>Env（KEY=VALUE，每行一个）</span>
               <textarea rows={4} value={envText} onChange={(event) => setEnvText(event.target.value)} />

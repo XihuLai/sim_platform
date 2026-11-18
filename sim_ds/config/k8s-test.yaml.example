@@ -1,0 +1,25 @@
+# Non-secret Backend/Scheduler settings for a test environment.
+# Mount this file into the Backend container and set SIM_CONFIG_FILE to its path.
+# Provide database credentials, Worker token, API tokens, and S3 credentials via Kubernetes Secrets.
+SIM_ENV: test
+SIM_AUTH_MODE: required
+SIM_EXECUTOR: k8s_pool
+SIM_DATA_DIR: /tmp/sim-data
+SIM_SERVE_FRONTEND: false
+
+SIM_K8S_NAMESPACE: sim-test
+SIM_K8S_WORKER_IMAGE: registry.example.com/sim/sim-worker:test
+SIM_K8S_WORKER_SECRET_NAME: sim-worker-secrets
+SIM_K8S_POOL_NAME: sim-worker-test
+SIM_K8S_POOL_REPLICAS: 1
+SIM_K8S_WORKER_SLOTS: 1
+SIM_K8S_SLOT_CPU: 1
+SIM_K8S_SLOT_MEM_GB: 1
+SIM_K8S_SLOT_GPU: 0
+
+SIM_WORKER_API_URL: https://test-scheduler.example.com/api
+SIM_OBJECT_STORE_BUCKET: sim-test-artifacts
+SIM_OBJECT_STORE_PREFIX: sim/test
+# Set for S3-compatible providers; omit for AWS default endpoint.
+# SIM_OBJECT_STORE_ENDPOINT_URL: https://s3.example.com
+# SIM_OBJECT_STORE_REGION: us-east-1

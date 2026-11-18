@@ -135,12 +135,58 @@ def test_test_environment_uses_distinct_default_database_and_pool(
     assert settings.object_store_prefix == "sim/test"
 
 
+def test_load_settings_reads_yaml_and_environment_overrides_yaml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "sim-test.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "SIM_ENV: test",
+                "SIM_AUTH_MODE: required",
+                "SIM_EXECUTOR: k8s_pool",
+                "SIM_DATA_DIR: " + str(tmp_path / "data"),
+                "SIM_K8S_NAMESPACE: sim-test",
+                "SIM_K8S_WORKER_IMAGE: registry.example.com/sim/worker:test",
+                "SIM_K8S_POOL_NAME: sim-worker-test",
+                "SIM_K8S_POOL_REPLICAS: 1",
+                "SIM_K8S_WORKER_SLOTS: 1",
+                "SIM_OBJECT_STORE_BUCKET: sim-test-artifacts",
+                "SIM_OBJECT_STORE_PREFIX: sim/test",
+                "SIM_WORKER_API_URL: https://test.example.com/api",
+                "SIM_SERVE_FRONTEND: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SIM_WORKER_TOKEN", "injected-secret")
+    monkeypatch.setenv("SIM_K8S_POOL_REPLICAS", "3")
+    monkeypatch.setenv("SIM_CONFIG_FILE", str(config))
+
+    settings = load_settings()
+
+    assert settings.executor_backend == "k8s_pool"
+    assert settings.k8s_namespace == "sim-test"
+    assert settings.k8s_worker_image == "registry.example.com/sim/worker:test"
+    assert settings.k8s_pool_name == "sim-worker-test"
+    assert settings.k8s_pool_replicas == 3
+    assert settings.k8s_worker_slots == 1
+    assert settings.worker_token == "injected-secret"
+    assert not settings.serve_frontend
+
+
+def test_yaml_config_rejects_secret_values(tmp_path: Path) -> None:
+    config = tmp_path / "unsafe.yaml"
+    config.write_text("SIM_WORKER_TOKEN: do-not-store-here\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="Secrets must be provided"):
+        load_settings(config)
+
+
 @pytest.mark.asyncio
 async def test_k8s_pool_executor_creates_secure_pull_deployment(tmp_path: Path) -> None:
     apps = FakeAppsApi()
-    executor = K8sPoolExecutor(
-        FakeDatabase(), _settings(tmp_path), apps_api=apps
-    )  # type: ignore[arg-type]
+    executor = K8sPoolExecutor(FakeDatabase(), _settings(tmp_path), apps_api=apps)  # type: ignore[arg-type]
 
     await executor.start()
 

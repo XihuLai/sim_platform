@@ -194,6 +194,13 @@ Secret/Token 及对象存储 bucket/prefix。**不能共用调度数据库或 ou
 prefix；如果指定环境变量覆盖这些值，仍须确保实际资源互相隔离。每个 Pod 默认一个 slot，
 整个 Pool 并发数为 `SIM_K8S_POOL_REPLICAS × SIM_K8S_WORKER_SLOTS`。
 
+Backend/Scheduler 的非敏感运行与 Pool 配置可放在 YAML 中，格式为一组 `SIM_*` 键值；
+通过 Backend 容器的 `SIM_CONFIG_FILE` 指定文件。环境变量优先于 YAML，可从 Kubernetes Secret
+注入敏感变量并覆盖相应配置。配置示例见 [k8s-test.yaml.example](config/k8s-test.yaml.example)。
+加载器拒绝 YAML 中的数据库 DSN/密码、API token、Worker token 和 S3 密钥。任务级
+`RuntimeConfig`（如 Binary URI、args、env、timeout、资源请求）仍随任务提交，由 Scheduler
+claim API 传给 Worker；这些动态参数不属于静态 Pool YAML。
+
 示例：部署测试环境。生产使用同一流程，将 `test` 替换为 `production`，并换成生产数据库、
 镜像、Scheduler URL、namespace、Secret 和对象存储凭据。
 
@@ -212,23 +219,45 @@ kubectl create secret generic sim-worker-secrets \
   --from-env-file=/secure/path/sim-worker-test.env \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Backend Deployment 需由部署平台预先创建，并挂载 Backend 自身数据库/鉴权 Secret。
-# 设置非敏感运行参数；敏感值从受控 Secret 注入，不要用命令行传递密码/token。
-kubectl set env "deployment/$BACKEND_DEPLOYMENT" \
+# 创建 Backend/Scheduler 使用的非敏感 ConfigMap。
+kubectl create configmap sim-backend-config \
   --namespace "$K8S_NAMESPACE" \
-  SIM_ENV="$ENV_NAME" \
-  SIM_EXECUTOR=k8s_pool \
-  SIM_K8S_NAMESPACE="$K8S_NAMESPACE" \
-  SIM_K8S_WORKER_IMAGE="$WORKER_IMAGE" \
-  SIM_K8S_POOL_NAME=sim-worker-test \
-  SIM_K8S_POOL_REPLICAS=1 \
-  SIM_K8S_WORKER_SLOTS=1 \
-  SIM_K8S_WORKER_SECRET_NAME=sim-worker-secrets \
-  SIM_WORKER_API_URL=https://test-scheduler.example.com/api \
-  SIM_OBJECT_STORE_BUCKET=sim-test-artifacts \
-  SIM_OBJECT_STORE_PREFIX=sim/test \
-  SIM_AUTH_MODE=required
+  --from-file=sim-test.yaml=config/k8s-test.yaml.example \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
 
+Backend Deployment 需由部署平台预先创建。将以下内容合并到 Backend 容器的 Deployment
+模板（容器名需匹配现有部署），挂载 ConfigMap 并设置配置文件路径。`sim-backend-secrets`
+应包含 Backend 所需敏感环境变量，如 `SIM_DATABASE_URL`、`SIM_API_TOKENS`、
+`SIM_WORKER_TOKEN` 和 S3 凭据。
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: SIM_CONFIG_FILE
+              value: /etc/sim/sim-test.yaml
+          envFrom:
+            - secretRef:
+                name: sim-backend-secrets
+          volumeMounts:
+            - name: sim-backend-config
+              mountPath: /etc/sim
+              readOnly: true
+      volumes:
+        - name: sim-backend-config
+          configMap:
+            name: sim-backend-config
+```
+
+ConfigMap 示例文件可按环境复制、修改非敏感参数后创建；`sim-worker-secrets` 应提供 Worker
+所需的同一个 `SIM_WORKER_TOKEN` 和 S3 凭据。Secret 环境变量优先于 YAML，禁止将密钥放进
+ConfigMap。Worker Pod 由 Backend 自动创建，不需要单独 `kubectl apply`。
+
+```bash
 # SIM_TEST_DATABASE_URL 由受控环境提供，必须指向独立测试库；不要留空。
 : "${SIM_TEST_DATABASE_URL:?Set SIM_TEST_DATABASE_URL to the isolated test database}"
 # 先对明确指定的测试库应用增量迁移（不要带 --reset）。
@@ -241,10 +270,9 @@ kubectl get deployments,pods --namespace "$K8S_NAMESPACE"
 ```
 
 `SIM_TEST_DATABASE_URL` 应由受控环境提供并指向独立测试 PostgreSQL。Backend Deployment
-还必须从受控 Secret 注入 `SIM_DATABASE_URL`、`SIM_API_TOKENS`（或所需账号鉴权配置）、
-`SIM_WORKER_TOKEN` 和对象存储凭据；Worker Secret 中的 `SIM_WORKER_TOKEN` 必须与 Scheduler
-配置一致。Scheduler 的 ServiceAccount 需有该 namespace 内 Deployment 的 get/create/patch
-权限；Worker 不需要 Kubernetes API 权限。`SIM_WORKER_API_URL` 必须从 Worker Pod 网络可达。
+应有权限读取 ConfigMap 挂载文件。Scheduler 的 ServiceAccount 需有该 namespace 内
+Deployment 的 get/create/patch 权限；Worker 不需要 Kubernetes API 权限。
+`SIM_WORKER_API_URL` 必须从 Worker Pod 网络可达。
 
 检查部署和日志：
 
@@ -254,9 +282,33 @@ kubectl logs deployment/sim-worker-test --namespace "$K8S_NAMESPACE" --all-conta
 kubectl logs "deployment/$BACKEND_DEPLOYMENT" --namespace "$K8S_NAMESPACE" --all-containers=true
 ```
 
-注意：`kubectl set env` 会更新 Backend Deployment 的 Pod template 并触发 rollout；如果部署
-平台以 Helm/GitOps 管理该 Deployment，应把相同变量更新到对应 values/配置源，避免被自动回滚。
-本仓库目前不提供 Backend Deployment YAML、Helm chart 或 Ingress 配置。
+注意：Backend 在启动时读取 `SIM_CONFIG_FILE`。修改 ConfigMap 后需重启 Backend Deployment
+使新配置生效；如果部署平台以 Helm/GitOps 管理 Deployment，应把 ConfigMap volume、mount 和
+环境变量更新到对应 values/配置源。本仓库不提供 Backend Deployment YAML、Helm chart 或
+Ingress 配置。
+
+### 正式环境上线步骤清单
+
+1. **确认发布版本**：固定 Backend 与 Worker 镜像 tag/digest；完成审查、依赖检查及 CI，
+   不使用 `latest`。
+2. **准备隔离资源**：为正式环境独立创建 PostgreSQL 数据库、K8s namespace、Worker Pool、
+   对象存储 bucket/prefix 和 Scheduler 域名；不复用测试数据库、outbox、Token 或存储凭据。
+3. **准备权限和密钥**：配置 Scheduler 最小 RBAC（目标 namespace 中 Worker Deployment 的
+   get/create/patch）；创建 Backend/Worker Secrets，确认两侧 Worker Token 一致，并验证镜像仓库、
+   PostgreSQL、对象存储权限。
+4. **准备 YAML**：以 `config/k8s-test.yaml.example` 为模板生成正式 ConfigMap，设置
+   `SIM_ENV=production`、正式镜像、namespace、Pool、副本数、`WORKER_SLOTS=1`、Scheduler URL
+   和对象存储 bucket/prefix；核验配置不含敏感值且网络地址可达。
+5. **备份并迁移**：备份正式数据库；确认迁移目标是正式库后运行 `scripts/migrate.py`
+   （不带 `--reset`）；确认集群配额满足 Pool 的 replicas × slot 资源请求。
+6. **部署并观察**：更新 Backend Deployment 的 ConfigMap 挂载和 `SIM_CONFIG_FILE`，发布
+   固定版本 Backend；等待 Backend rollout 后检查它创建/更新的 Worker Deployment 和 Pod。
+   查看应用日志、RBAC 拒绝、镜像拉取及 Scheduler/S3 连通性。
+7. **Canary 验收**：提交小型正式任务，确认 Worker 领取正确 attempt、输入 checksum 校验通过、
+   输出上传成功、报告落库且结果/指标正确；验证 pause/resume/cancel 与失败重试。
+8. **放量与回滚**：canary 通过后逐步增加 Pool replicas；保留上一版镜像和 ConfigMap。
+   应用回滚只恢复兼容的镜像/配置，数据库变更按已审查的向后兼容策略回滚或前滚；
+   不对生产库执行 `--reset`。
 
 ### CI 中的验证命令
 
@@ -281,5 +333,6 @@ cd frontend/app && npm install --no-audit --no-fund && npm run build
 
 ## 生产注意
 
-生产必须设置 `SIM_ENV=production`、`SIM_AUTH_MODE=required` 与 `SIM_API_TOKENS`，否则进程拒绝启动。
+生产必须设置 `SIM_ENV=production` 和 `SIM_AUTH_MODE=required`，并启用数据库账号鉴权或配置
+`SIM_API_TOKENS`，否则进程拒绝启动。
 所有 Scenario、Set、Task、Playback 查询均按 `X-Project` 做项目隔离，跨项目返回 404/403。

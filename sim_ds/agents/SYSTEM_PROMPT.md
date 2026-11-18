@@ -22,7 +22,7 @@
 ## 技术栈（冻结）
 Python 3.12 + FastAPI + Pydantic v2 + PostgreSQL 15（生产，SQLite 仅开发）
 + 文件系统（场景 JSON 事实源，DB 存 uri+checksum）
-+ 可插拔 Executor（Local 起步，K8sPool 生产主路径，K8sJob 兜底）
++ 可插拔 Executor（Local 起步，K8sPool 生产主路径；每 Pod 默认单 slot）
 + DB SKIP LOCKED 派发（MQ 可选加速，永不作为状态源）。
 禁止引入未批准重依赖（Celery/Redis 作状态源/DB 存大对象/每 case 一 Job
 作批量主路径/运行时 CREATE TABLE）。

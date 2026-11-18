@@ -8,11 +8,11 @@ from typing import Any
 
 import httpx
 import pytest
-from backend.shared.config import Settings
+from backend.shared.config import Settings, load_settings
 from backend.shared.db import dumps
 from backend.shared.errors import AppError
 from backend.shared.object_store import S3FileStore
-from backend.sim.k8s_executor import K8sJobExecutor, K8sPoolExecutor
+from backend.sim.k8s_executor import K8sPoolExecutor
 from backend.sim.worker import SchedulerWorkerClient, Worker
 from botocore.exceptions import ClientError
 from kubernetes.client.exceptions import ApiException
@@ -69,18 +69,6 @@ class FakeDatabase:
         return self.row
 
 
-class FakeBatchApi:
-    def __init__(self) -> None:
-        self.jobs: list[dict[str, Any]] = []
-        self.deleted: list[str] = []
-
-    def create_namespaced_job(self, *, namespace: str, body: dict[str, Any]) -> None:
-        self.jobs.append(body)
-
-    def delete_namespaced_job(self, *, name: str, namespace: str, body: dict[str, Any]) -> None:
-        self.deleted.append(name)
-
-
 class FakeAppsApi:
     def __init__(self) -> None:
         self.deployment: dict[str, Any] | None = None
@@ -114,30 +102,44 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-@pytest.mark.asyncio
-async def test_k8s_job_executor_creates_single_case_job(tmp_path: Path) -> None:
-    api = FakeBatchApi()
-    executor = K8sJobExecutor(
-        FakeDatabase(), _settings(tmp_path), batch_api=api
-    )  # type: ignore[arg-type]
+def test_k8s_worker_pool_defaults_to_one_slot(tmp_path: Path) -> None:
+    assert Settings(data_dir=tmp_path).k8s_worker_slots == 1
 
-    await executor.submit({"id": "run-1"})
 
-    job = api.jobs[0]
-    container = job["spec"]["template"]["spec"]["containers"][0]
-    assert job["spec"]["backoffLimit"] == 0
-    assert job["spec"]["template"]["spec"]["restartPolicy"] == "Never"
-    assert container["resources"]["requests"] == {"cpu": "2", "memory": "3Gi"}
-    assert any(item["name"] == "SIM_WORK_SPEC" for item in container["env"])
-    assert container["envFrom"] == [{"secretRef": {"name": "worker-secrets"}}]
-    assert "volumes" not in job["spec"]["template"]["spec"]
+def test_k8s_job_executor_backend_is_rejected(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, executor_backend="k8s_job")
+
+    with pytest.raises(SystemExit, match="SIM_EXECUTOR must be local or k8s_pool"):
+        settings.validate()
+
+
+def test_test_environment_uses_distinct_default_database_and_pool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SIM_ENV", "test")
+    monkeypatch.setenv("SIM_DATA_DIR", str(tmp_path))
+    for name in (
+        "SIM_DATABASE_URL",
+        "SIM_PG_DATABASE",
+        "SIM_K8S_NAMESPACE",
+        "SIM_K8S_POOL_NAME",
+        "SIM_OBJECT_STORE_PREFIX",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = load_settings()
+
+    assert settings.database_url.endswith("/sim_test")
+    assert settings.k8s_namespace == "sim-test"
+    assert settings.k8s_pool_name == "sim-worker-test"
+    assert settings.object_store_prefix == "sim/test"
 
 
 @pytest.mark.asyncio
 async def test_k8s_pool_executor_creates_secure_pull_deployment(tmp_path: Path) -> None:
     apps = FakeAppsApi()
     executor = K8sPoolExecutor(
-        FakeDatabase(), _settings(tmp_path), batch_api=FakeBatchApi(), apps_api=apps
+        FakeDatabase(), _settings(tmp_path), apps_api=apps
     )  # type: ignore[arg-type]
 
     await executor.start()
@@ -145,8 +147,13 @@ async def test_k8s_pool_executor_creates_secure_pull_deployment(tmp_path: Path) 
     assert apps.deployment is not None
     pod = apps.deployment["spec"]["template"]["spec"]
     assert apps.deployment["spec"]["replicas"] == 2
+    assert apps.deployment["metadata"]["namespace"] == "sim"
+    assert apps.deployment["metadata"]["name"] == "sim-worker"
     assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["containers"][0]["image"] == "registry.invalid/sim-worker:test"
     assert pod["containers"][0]["env"][0] == {"name": "SIM_WORK_MODE", "value": "poll"}
+    assert {"name": "SIM_WORKER_SLOTS", "value": "1"} in pod["containers"][0]["env"]
+    assert pod["containers"][0]["resources"]["requests"] == {"cpu": "1", "memory": "1Gi"}
     assert "volumes" not in pod
 
 

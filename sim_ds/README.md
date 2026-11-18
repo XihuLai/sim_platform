@@ -18,7 +18,7 @@ backend/
   shared/       DB、配置、鉴权、文件发布、游标
   tests/        PostgreSQL 集成测试与纯逻辑测试
 frontend/app/   React 前端（构建产物 dist/ 由后端托管）
-migrations/     PostgreSQL 迁移 001~006
+migrations/     PostgreSQL schema migrations
 scripts/        迁移、演示数据、端到端 smoke
 docs/           契约、API、架构说明
 ```
@@ -28,7 +28,7 @@ docs/           契约、API、架构说明
 ```bash
 # 1. 依赖
 python3.12 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev]'
 
 # 2. 数据库（默认 postgres:xh127@127.0.0.1:5432）
 .venv/bin/python scripts/migrate.py --reset
@@ -105,13 +105,170 @@ mock metrics：
 ## 自检
 
 ```bash
+# 后端静态检查、类型检查、测试
+.venv/bin/ruff check backend scripts
+.venv/bin/mypy backend
 PYTHONPATH=. .venv/bin/python -m pytest -q
-PYTHONPATH=. .venv/bin/python scripts/smoke.py --base http://127.0.0.1:8000
-cd frontend/app && npm run build
+
+# 前端类型检查与生产构建
+cd frontend/app
+npm ci
+npm run build
 ```
 
 PostgreSQL 测试库默认 `sim_test`；不可用时集成测试自动 skip。可用
 `SIM_PG_TEST_DATABASE` / `SIM_TEST_DATABASE_URL` 覆盖。
+
+端到端 smoke（需先启动 Backend，并准备可登录的测试账号/测试数据）：
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/smoke.py --base http://127.0.0.1:8000
+```
+
+## 构建、打包与部署
+
+### 本地开发环境
+
+```bash
+# 建立 Python 环境并安装应用和开发/K8s 测试依赖
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+
+# 安装前端依赖；package-lock.json 存在时使用 npm ci 保持依赖版本一致
+cd frontend/app
+npm ci
+cd ../..
+
+# 编译检查 Python 源码
+.venv/bin/python -m compileall -q backend scripts
+
+# 初始化本地开发数据库（会清空 public schema；只可对开发库执行）
+SIM_ENV=dev .venv/bin/python scripts/migrate.py --reset
+
+# 启动 Backend + Vite 前端；停止使用 ./scripts/stop.sh
+./scripts/start.sh
+```
+
+默认由本地 PostgreSQL 提供 `sim_dev` 数据库。使用其他数据库时，先设置
+`SIM_DATABASE_URL` 或 `SIM_PG_HOST/SIM_PG_PORT/SIM_PG_USER/SIM_PG_PASSWORD/SIM_PG_DATABASE`。
+`--reset` 会删除并重建目标库的 `public` schema，禁止对测试或生产数据执行。
+
+### 构建前端与 Python 包
+
+```bash
+# 前端 TypeScript 检查并构建静态资源；Backend 默认从 data_dir 对应的 frontend/app/dist 托管
+cd frontend/app
+npm ci
+npm run build
+cd ../..
+
+# 构建后端 wheel/sdist 到 dist/
+.venv/bin/python -m pip install build
+.venv/bin/python -m build
+```
+
+Python 包仅包含 `backend` 与 `scripts`。仓库没有 Backend 应用 Dockerfile；Backend 镜像、
+Service/Ingress 和 Secret 挂载由部署平台自己的镜像/清单管理。Worker 镜像独立构建如下。
+
+### 构建并发布 K8s Worker 镜像
+
+需要 Docker/BuildKit 和有 push 权限的镜像仓库。将仓库地址和版本标签替换为实际值：
+
+```bash
+export WORKER_IMAGE=registry.example.com/sim/sim-worker:2026-11-18
+docker build -f Dockerfile.worker -t "$WORKER_IMAGE" .
+docker push "$WORKER_IMAGE"
+```
+
+Worker 镜像基于 `Dockerfile.worker`，使用非 root 用户，不包含数据库驱动、Kubernetes
+客户端或 PVC。K8s 中由 Backend/Scheduler 自动创建或更新 Worker Deployment，不需要单独
+`kubectl apply` Worker YAML。
+
+### 测试与生产环境部署
+
+测试和生产必须部署独立 Backend/Scheduler、PostgreSQL、K8s namespace/Worker Pool、Worker
+Secret/Token 及对象存储 bucket/prefix。**不能共用调度数据库或 outbox**：不同环境的 Pool
+否则可能领取并执行对方任务。默认 `SIM_ENV=test` 与 `SIM_ENV=production` 会分别使用
+`sim_test`/`sim_prod` 数据库名、`sim-test`/`sim-production` namespace、
+`sim-worker-test`/`sim-worker-production` Pool，以及 `sim/test`/`sim/production` 对象存储
+prefix；如果指定环境变量覆盖这些值，仍须确保实际资源互相隔离。每个 Pod 默认一个 slot，
+整个 Pool 并发数为 `SIM_K8S_POOL_REPLICAS × SIM_K8S_WORKER_SLOTS`。
+
+示例：部署测试环境。生产使用同一流程，将 `test` 替换为 `production`，并换成生产数据库、
+镜像、Scheduler URL、namespace、Secret 和对象存储凭据。
+
+```bash
+export ENV_NAME=test
+export K8S_NAMESPACE=sim-test
+export WORKER_IMAGE=registry.example.com/sim/sim-worker:2026-11-18
+export BACKEND_DEPLOYMENT=sim-backend-test
+
+# 建 namespace，并为测试 Worker 建立独立 Secret env 文件。
+kubectl create namespace "$K8S_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+# /secure/path/sim-worker-test.env 需包含 SIM_WORKER_TOKEN 和 S3 凭据；
+# 文件应由 Secret 管理流程生成，不要提交到代码库。
+kubectl create secret generic sim-worker-secrets \
+  --namespace "$K8S_NAMESPACE" \
+  --from-env-file=/secure/path/sim-worker-test.env \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Backend Deployment 需由部署平台预先创建，并挂载 Backend 自身数据库/鉴权 Secret。
+# 设置非敏感运行参数；敏感值从受控 Secret 注入，不要用命令行传递密码/token。
+kubectl set env "deployment/$BACKEND_DEPLOYMENT" \
+  --namespace "$K8S_NAMESPACE" \
+  SIM_ENV="$ENV_NAME" \
+  SIM_EXECUTOR=k8s_pool \
+  SIM_K8S_NAMESPACE="$K8S_NAMESPACE" \
+  SIM_K8S_WORKER_IMAGE="$WORKER_IMAGE" \
+  SIM_K8S_POOL_NAME=sim-worker-test \
+  SIM_K8S_POOL_REPLICAS=1 \
+  SIM_K8S_WORKER_SLOTS=1 \
+  SIM_K8S_WORKER_SECRET_NAME=sim-worker-secrets \
+  SIM_WORKER_API_URL=https://test-scheduler.example.com/api \
+  SIM_OBJECT_STORE_BUCKET=sim-test-artifacts \
+  SIM_OBJECT_STORE_PREFIX=sim/test \
+  SIM_AUTH_MODE=required
+
+# SIM_TEST_DATABASE_URL 由受控环境提供，必须指向独立测试库；不要留空。
+: "${SIM_TEST_DATABASE_URL:?Set SIM_TEST_DATABASE_URL to the isolated test database}"
+# 先对明确指定的测试库应用增量迁移（不要带 --reset）。
+SIM_DATABASE_URL="$SIM_TEST_DATABASE_URL" .venv/bin/python scripts/migrate.py
+
+# Backend 启动后会创建/更新 Worker Deployment。等待 Backend 和 Worker 均就绪。
+kubectl rollout status "deployment/$BACKEND_DEPLOYMENT" --namespace "$K8S_NAMESPACE"
+kubectl rollout status deployment/sim-worker-test --namespace "$K8S_NAMESPACE"
+kubectl get deployments,pods --namespace "$K8S_NAMESPACE"
+```
+
+`SIM_TEST_DATABASE_URL` 应由受控环境提供并指向独立测试 PostgreSQL。Backend Deployment
+还必须从受控 Secret 注入 `SIM_DATABASE_URL`、`SIM_API_TOKENS`（或所需账号鉴权配置）、
+`SIM_WORKER_TOKEN` 和对象存储凭据；Worker Secret 中的 `SIM_WORKER_TOKEN` 必须与 Scheduler
+配置一致。Scheduler 的 ServiceAccount 需有该 namespace 内 Deployment 的 get/create/patch
+权限；Worker 不需要 Kubernetes API 权限。`SIM_WORKER_API_URL` 必须从 Worker Pod 网络可达。
+
+检查部署和日志：
+
+```bash
+kubectl get deployments,pods --namespace "$K8S_NAMESPACE"
+kubectl logs deployment/sim-worker-test --namespace "$K8S_NAMESPACE" --all-containers=true
+kubectl logs "deployment/$BACKEND_DEPLOYMENT" --namespace "$K8S_NAMESPACE" --all-containers=true
+```
+
+注意：`kubectl set env` 会更新 Backend Deployment 的 Pod template 并触发 rollout；如果部署
+平台以 Helm/GitOps 管理该 Deployment，应把相同变量更新到对应 values/配置源，避免被自动回滚。
+本仓库目前不提供 Backend Deployment YAML、Helm chart 或 Ingress 配置。
+
+### CI 中的验证命令
+
+`.github/workflows/ci.yml` 的 CI 使用 PostgreSQL 16，并运行以下命令；本地集成测试也建议
+提供 PostgreSQL，而非仅依赖 SQLite：
+
+```bash
+.venv/bin/ruff check backend scripts
+.venv/bin/mypy backend
+PYTHONPATH=. .venv/bin/python -m pytest -q
+cd frontend/app && npm install --no-audit --no-fund && npm run build
+```
 
 ## 关键语义
 

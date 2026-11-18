@@ -2,9 +2,10 @@
 
 ## Round 031 — K8s 执行器与 OSS Worker 基线 — 2026-11-17
 - [contract] 确认 Worker 通过 S3-compatible SDK 直读场景/Binary、上传结果；不挂载 PVC、不直连 DB；结果回调 Scheduler 落库
-- [feat] 增加可插拔 Executor 协议、K8sPoolExecutor（Deployment + HTTP outbox claim）和 K8sJobExecutor（每 attempt 一个 Job）
+- [feat] 增加可插拔 Executor 协议与 K8sPoolExecutor（Deployment + HTTP outbox claim）；默认每 Pod 一个 slot
 - [feat] 增加 Worker claim/start/heartbeat/result API、S3 FileStore 和 Worker 进程；Binary 使用 s3:// URI 与强制 SHA-256
 - [deploy] 新增可选依赖 kubernetes Python client 与 boto3；LocalExecutor 默认不需要初始化 K8s
+- [deploy] 测试与生产必须使用独立 Scheduler 部署和 PostgreSQL 数据库，Worker Pool/namespace/密钥/对象存储分别隔离
 - [pending] 目标集群部署/联调待提供 namespace、镜像仓库、Scheduler URL、RBAC、对象存储 endpoint/bucket 与网络策略
 
 ## Round 030 — Web 发起 3 cases 全流程验收 — 2026-11-17
@@ -50,7 +51,7 @@
 - [feat] 新增数据统计页 /stats：按时间范围统计用户任务数与 case 累计
 - [feat] 账号额度新增每日 case 上限并在任务提交时校验；CPU/内存/GPU 额度 UI 隐藏且不参与调度
 - [feat] 任务列表默认“只看我的任务”，管理员可取消筛选
-- [pending] K8sPoolExecutor / K8sJobExecutor / K8s worker 尚未实现，需要目标集群与镜像/存储参数
+- [pending] 目标集群部署/联调待提供 namespace、镜像仓库、Scheduler URL、RBAC、对象存储 endpoint/bucket 与网络策略
 
 ## Round 023 — 引擎下拉与 Mock 环境日志 — 2026-11-17
 - [fix] Binary 引擎下拉改为受控浮层，固定显示在输入框下方，支持输入自定义 binary 路径

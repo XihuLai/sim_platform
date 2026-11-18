@@ -5,6 +5,7 @@
 > 契约变更只允许向后兼容新增；破坏性变更须开新主版本并在 CHANGELOG 高亮。
 
 ## 0. 版本变更
+- v2.4 : K8s 执行统一使用常驻 K8sPoolExecutor（每 Pod 默认一个 slot）；测试与生产通过独立 Backend/Scheduler、PostgreSQL、K8s namespace/Pool 和对象存储隔离，移除 K8sJobExecutor。
 - v2.3 : Metric ID 改为分类数字段（舒适 1001+/合规 2001+/安全 3001+/效率 4001+/导航 5001+），新增自动递增；Scenario.metrics 改为 metric.json 完整对象（id/name/desc + 规则），移除 enabled/metric_def_id/metric_def_ver/config 包装层。
 - v2.2 : metric_def 支持直接保存 `trigger_functions` / `trigger_ops` / `functions` 规则 JSON（含 env），并按其中 template_id 自动派生模板引用；Metric 管理页展示定义 JSON。
 - v2.1 : 统一 scenario_metric.config 不含 level/is_global（从 metric_def 查）；红线分阻塞级/建议级。
@@ -28,7 +29,7 @@
 │ SimTask(选集+RuntimeConfig+Priority)        │
 │ → 展开(expanding) → Scheduler               │
 │ (优先级/老化/抢占/暂停/取消/配额)            │
-│ → Executor(Local | K8sPool | K8sJob)        │
+│ → Executor(Local | K8sPool)                 │
 │ → CaseRun × N（几个 ~ 万级并行）             │
 │ → 结果聚合(预聚合) + 评测                    │
 └──────────────────┬────────────────────────┘

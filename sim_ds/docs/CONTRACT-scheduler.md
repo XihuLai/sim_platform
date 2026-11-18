@@ -31,8 +31,7 @@ pause/resume 在 expanding 或终态任务上拒绝；cancel 可作用于任一�
 expanding。取消展开时 Expander 每批写入前重读 Task 状态，停止新增 CaseRun；Scheduler
 取消已展开的非终态 CaseRun。Task 在所有 CaseRun 终止后进入 canceled。
 pause 仅在所有 active CaseRun 的 Executor 都支持原地暂停时接受；否则整条 Task 请求以
-明确错误拒绝，不允许部分暂停。抢占只选择支持 pause 的 victim；K8sJobExecutor 不可作为
-暂停或抢占 victim。
+明确错误拒绝，不允许部分暂停。抢占只选择支持 pause 的 victim。
 
 ## 3. 提交与展开
 
@@ -89,13 +88,11 @@ Protocol:
 | 后端 | 暂停 | 取消 | 适用 |
 |---|---|---|---|
 | LocalExecutor | SIGSTOP 进程组 | SIGTERM→SIGKILL | 开发/CI/单机 |
-| K8sPoolExecutor | worker 内 SIGSTOP 子进程 | 杀进程树 + 回写 | 生产主路径 |
-| K8sJobExecutor | 不支持原地暂停 | kubectl delete job | 仅强隔离兜底 |
+| K8sPoolExecutor | worker 内 SIGSTOP 子进程 | 杀进程树 + 回写 | 常驻 Worker Pool；每 Pod 默认一个并发 slot |
 
 远程 Worker 部署约定：
 - K8sPoolExecutor 管理常驻 Worker Deployment；Worker 经 Scheduler 的 Bearer Token API
-  claim 当前 attempt 的 DB outbox dispatch 项，不直连 DB。K8sJobExecutor 每个 attempt
-  创建一个 Job，并把不可变 Case 描述作为容器启动配置传给 Worker。
+  claim 当前 attempt 的 DB outbox dispatch 项，不直连 DB。
 - Scenario 版本、Binary 和输出均在 S3-compatible object store；Worker 使用 SDK 下载
   Scenario/Binary、校验 SHA-256、上传输出，不挂载 PVC。Binary URI 使用
   `RuntimeConfig.binary_uri=s3://bucket/key`，并要求 `binary_checksum`。
@@ -103,6 +100,11 @@ Protocol:
   `(case_run_id, attempt, worker_id)` 并在事务中变更 CaseRun/聚合。Worker 无 DB 凭据。
 - Worker callback Token、S3 凭据和镜像拉取凭据通过 Secret 注入。Scheduler 的
   Kubernetes ServiceAccount/RBAC 与 Worker ServiceAccount 权限分离。
+- 测试与生产分别部署 Backend/Scheduler 和 PostgreSQL，使用不同的 K8s namespace、
+  Pool/Deployment 名、Worker Secret/Token、Scheduler URL 及对象存储 bucket/prefix。
+  测试 Worker 只连接测试 Scheduler；不可让两套 Scheduler 共用数据库/outbox，否则任务
+  可能被错误环境的 Worker 领取。`SIM_K8S_WORKER_SLOTS` 默认 1；Pool 的总并发为
+  `SIM_K8S_POOL_REPLICAS × SIM_K8S_WORKER_SLOTS`。
 
 不变量：
 1. CaseRun 状态只由 Scheduler 状态转换入口在 DB 变更。Worker 事实带 attempt 和

@@ -13,7 +13,7 @@ Domain services
   SetService      ── SetSupport      ── snapshot builder/sharding
   MetricService
   TaskService     ── TaskReadMixin
-  Expander / Scheduler / Executor(Local | K8sPool | K8sJob) / WorkerService / ResultService
+  Expander / Scheduler / Executor(Local | K8sPool) / WorkerService / ResultService
   PlaybackService ── synth payloads + FileStore
         │
 PostgreSQL 15+ (raw SQL, JSONB, SKIP LOCKED, partitions, preaggregates)
@@ -80,9 +80,8 @@ metric_category (固定 5)
 - `LocalExecutor` 使用独立进程组启动 `python -m backend.sim.engine_cli`，环境变量与
   args 模板变量走白名单。
 - `K8sPoolExecutor` 创建/更新常驻 Deployment，Worker 通过带认证的 Scheduler API
-  原子领取 DB outbox dispatch 项；`K8sJobExecutor` 每个 CaseRun attempt 创建独立 Job。
-- 两种远程执行器都调用相同的 Worker；终态事实通过 Scheduler API 回写，状态机和聚合
-  仍在服务端，Job Worker 不支持 pause，Pool Worker 通过心跳返回的控制状态暂停/恢复。
+  原子领取 DB outbox dispatch 项；每 Pod 默认一个并发 slot。Pool Worker 通过心跳返回的
+  控制状态暂停/恢复；终态事实通过 Scheduler API 回写，状态机和聚合仍在服务端。
 - 心跳每 10s；超时杀进程组。`ResultService` 以 `(case_run_id, attempt, report_id)`
   处理重复/过期报告。
 - 失败按 RuntimeConfig.retry 重排；每次状态迁移同时更新 `task_summary`、
@@ -123,5 +122,7 @@ video SVG / pointcloud / timeseries 渲染。所有页面具备空/加载/错误
 ## 8. 已知取舍
 
 - K8s 执行器与 Worker 已有首版实现；目标集群镜像、RBAC、网络策略和资源规格尚需部署联调。
+- 测试与生产必须使用独立 Scheduler 部署及 PostgreSQL 数据库，以避免不同 Worker Pool
+  领取对方任务；namespace、Pool 名称、Scheduler URL、Worker Secret 和对象存储配置也分别隔离。
 - mcap/bag 解析适配器目前用 manifest 元数据桩，chunk 数据为确定性合成数据。
 - 归档查询需可选依赖 `pyarrow`；未安装时返回 503，不影响主链路。

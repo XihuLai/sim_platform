@@ -30,11 +30,17 @@ def _default_database_url() -> str:
     explicit = os.getenv("SIM_DATABASE_URL")
     if explicit:
         return explicit
+    environment = os.getenv("SIM_ENV", "dev").lower()
+    default_database = (
+        "sim_prod" if environment in {"prod", "production"}
+        else "sim_test" if environment in {"test", "testing"}
+        else "sim_dev"
+    )
     host = os.getenv("SIM_PG_HOST", "127.0.0.1")
     port = os.getenv("SIM_PG_PORT", "5432")
     user = os.getenv("SIM_PG_USER", "postgres")
     password = os.getenv("SIM_PG_PASSWORD", "xh127")
-    database = os.getenv("SIM_PG_DATABASE", "sim_dev")
+    database = os.getenv("SIM_PG_DATABASE", default_database)
     return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
 
 
@@ -96,7 +102,7 @@ class Settings:
     k8s_image_pull_secret: str | None = None
     k8s_pool_name: str = "sim-worker"
     k8s_pool_replicas: int = 2
-    k8s_worker_slots: int = 4
+    k8s_worker_slots: int = 1
     k8s_slot_cpu: int = 1
     k8s_slot_mem_gb: int = 1
     k8s_slot_gpu: int = 0
@@ -119,8 +125,8 @@ class Settings:
             raise SystemExit(
                 "production requires SIM_API_TOKENS or database account authentication"
             )
-        if self.executor_backend not in {"local", "k8s_pool", "k8s_job"}:
-            raise SystemExit("SIM_EXECUTOR must be local, k8s_pool, or k8s_job")
+        if self.executor_backend not in {"local", "k8s_pool"}:
+            raise SystemExit("SIM_EXECUTOR must be local or k8s_pool")
         if self.executor_backend.startswith("k8s_"):
             missing = [
                 name
@@ -171,19 +177,19 @@ def load_settings() -> Settings:
         object_store_region=os.getenv("SIM_OBJECT_STORE_REGION") or None,
         object_store_access_key=os.getenv("SIM_OBJECT_STORE_ACCESS_KEY") or None,
         object_store_secret_key=os.getenv("SIM_OBJECT_STORE_SECRET_KEY") or None,
-        object_store_prefix=os.getenv("SIM_OBJECT_STORE_PREFIX", ""),
+        object_store_prefix=os.getenv("SIM_OBJECT_STORE_PREFIX", f"sim/{env.lower()}"),
         worker_api_url=os.getenv("SIM_WORKER_API_URL", ""),
         worker_token=os.getenv("SIM_WORKER_TOKEN", ""),
         worker_poll_sec=float(os.getenv("SIM_WORKER_POLL_SEC", "2")),
         worker_heartbeat_sec=float(os.getenv("SIM_WORKER_HEARTBEAT_SEC", "10")),
-        k8s_namespace=os.getenv("SIM_K8S_NAMESPACE", "default"),
+        k8s_namespace=os.getenv("SIM_K8S_NAMESPACE", f"sim-{env.lower()}"),
         k8s_worker_image=os.getenv("SIM_K8S_WORKER_IMAGE", ""),
         k8s_worker_secret_name=os.getenv("SIM_K8S_WORKER_SECRET_NAME", "sim-worker-secrets"),
         k8s_service_account=os.getenv("SIM_K8S_SERVICE_ACCOUNT") or None,
         k8s_image_pull_secret=os.getenv("SIM_K8S_IMAGE_PULL_SECRET") or None,
-        k8s_pool_name=os.getenv("SIM_K8S_POOL_NAME", "sim-worker"),
+        k8s_pool_name=os.getenv("SIM_K8S_POOL_NAME", f"sim-worker-{env.lower()}"),
         k8s_pool_replicas=int(os.getenv("SIM_K8S_POOL_REPLICAS", "2")),
-        k8s_worker_slots=int(os.getenv("SIM_K8S_WORKER_SLOTS", "4")),
+        k8s_worker_slots=int(os.getenv("SIM_K8S_WORKER_SLOTS", "1")),
         k8s_slot_cpu=int(os.getenv("SIM_K8S_SLOT_CPU", "1")),
         k8s_slot_mem_gb=int(os.getenv("SIM_K8S_SLOT_MEM_GB", "1")),
         k8s_slot_gpu=int(os.getenv("SIM_K8S_SLOT_GPU", "0")),

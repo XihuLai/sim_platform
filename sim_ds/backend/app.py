@@ -24,7 +24,7 @@ from backend.shared.object_store import S3FileStore, create_s3_client
 from backend.sim.executor import LocalExecutor
 from backend.sim.executor_protocol import Executor
 from backend.sim.expander import Expander
-from backend.sim.k8s_executor import K8sJobExecutor, K8sPoolExecutor
+from backend.sim.k8s_executor import K8sPoolExecutor
 from backend.sim.results import ResultService
 from backend.sim.scheduler import Scheduler
 from backend.sim.service import TaskService
@@ -131,8 +131,6 @@ def _build_services(
     expander = Expander(db, set_service, batch=config.expand_batch)
     if config.executor_backend == "k8s_pool":
         executor: Executor = K8sPoolExecutor(db, config)
-    elif config.executor_backend == "k8s_job":
-        executor = K8sJobExecutor(db, config)
     else:
         executor = LocalExecutor(db, results, config)
     scheduler = Scheduler(db, config, results, expander, executor)

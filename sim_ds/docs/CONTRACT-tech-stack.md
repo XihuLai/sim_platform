@@ -82,8 +82,7 @@ Executor 抽象（可插拔）：
 | 实现 | 定位 | 暂停 | 取消 |
 |---|---|---|---|
 | LocalExecutor | 开发/CI/单机 | SIGSTOP 进程组；仅同进程存活时保留现场 | SIGTERM→SIGKILL |
-| K8sPoolExecutor | 生产主路径（常驻 Deployment，worker HTTP claim DB outbox；每 Pod 多 slot） | worker 内 SIGSTOP 子进程；Pod/Worker 丢失后从头重跑 | worker 轮询 Scheduler 控制状态并杀进程树 |
-| K8sJobExecutor | 仅强隔离兜底（每 CaseRun/attempt 一个 Job） | 不支持原地暂停 | 删除对应 Job |
+| K8sPoolExecutor | 常驻 Deployment；worker HTTP claim DB outbox；每 Pod 默认一个 slot | worker 内 SIGSTOP 子进程；Pod/Worker 丢失后从头重跑 | worker 轮询 Scheduler 控制状态并杀进程树 |
 
 ### K8s Worker 数据与报告协议
 - K8s Worker 不挂载 PVC/NFS，不连接 PostgreSQL；通过 S3-compatible SDK 直接下载
@@ -98,22 +97,32 @@ Executor 抽象（可插拔）：
 - Scheduler 提供 `/api/internal/worker/{claim,start,heartbeat,result}` Bearer Token API；
   Token 仅放在 K8s Secret。Worker 只能提交执行事实，状态迁移和聚合仍由 Scheduler/DB
   事务完成。
-- Pool Worker 通过 claim API 原子领取 `outbox` 中当前 attempt 的 dispatch 项；Job Worker
-  由 K8sJobExecutor 注入单次 CaseRun 描述。Worker 崩溃后由心跳超时回收；过期 attempt
+- Pool Worker 通过 claim API 原子领取 `outbox` 中当前 attempt 的 dispatch 项。Worker 崩溃后由心跳超时回收；过期 attempt
   的消息/报告不得覆盖新 attempt。
-- K8s Scheduler 需要在指定 namespace 创建/读取/删除 Job 与 Deployment 的 RBAC；
+- K8s Scheduler 只需在指定 namespace 创建/读取/更新 Deployment 的 RBAC；
   Worker ServiceAccount 不需要 Kubernetes API 权限。Worker 通过网络访问 Scheduler、
   对象存储；不创建数据卷。镜像使用非 root 用户、只读最小依赖和显式 CPU/内存/GPU
   requests/limits。目标集群的网络策略、Registry 凭证和资源值属于部署参数。
-- 配置项：`SIM_EXECUTOR=local|k8s_pool|k8s_job`；对象存储使用
+- 配置项：`SIM_EXECUTOR=local|k8s_pool`；对象存储使用
   `SIM_OBJECT_STORE_BUCKET/PREFIX/ENDPOINT_URL/REGION`，凭据来自 boto3 默认凭据链或
   `SIM_OBJECT_STORE_ACCESS_KEY/SECRET_KEY`；Worker API 地址使用含 `/api` 的
   `SIM_WORKER_API_URL`。K8s 资源由 `SIM_K8S_NAMESPACE/WORKER_IMAGE/POOL_NAME/
   POOL_REPLICAS/WORKER_SLOTS/SLOT_CPU/SLOT_MEM_GB/SLOT_GPU/SERVICE_ACCOUNT/IMAGE_PULL_SECRET` 配置；
   `SIM_WORKER_TOKEN` 与对象存储密钥通过 `SIM_K8S_WORKER_SECRET_NAME` 指定的 Secret 注入。
-  `SIM_K8S_SLOT_CPU/MEM_GB/GPU` 是每个并发 slot 的资源；Pool Pod requests/limits 与 Scheduler
-  容量按 `WORKER_SLOTS` 聚合，副本总容量再乘 `POOL_REPLICAS`。K8s CaseRun 的 CPU 和内存请求
+  `SIM_K8S_SLOT_CPU/MEM_GB/GPU` 是每个并发 slot 的资源；`SIM_K8S_WORKER_SLOTS` 默认 1，
+  Pool Pod requests/limits 与 Scheduler 容量按 `WORKER_SLOTS` 聚合，副本总容量再乘
+  `POOL_REPLICAS`。K8s CaseRun 的 CPU 和内存请求
   至少为 1，以确保调度器预留与 Pod 资源一致。
+- 测试与生产使用独立后端部署和独立 PostgreSQL 数据库；不可让两套 Scheduler 共用
+  CaseRun/outbox 数据库，否则各自的 Worker Pool 都可能 claim 对方的派发任务。每套环境使用
+  独立 namespace、Deployment/Pool 名称、Worker Secret/Token 与 Scheduler URL；对象存储至少
+  使用隔离的 bucket 或 prefix 及凭据。测试环境可设置独立 Worker 镜像和副本数，单 Pod
+  `WORKER_SLOTS=1`。部署配置必须将 Worker API URL 指回同环境 Scheduler。
+  配置默认按 `SIM_ENV` 区分数据库名（dev/test/production 分别为 `sim_dev/sim_test/sim_prod`）、
+  namespace（`sim-{env}`）、Pool 名（`sim-worker-{env}`）和对象存储 prefix（`sim/{env}`）。
+  测试使用 `SIM_ENV=test`、测试镜像与测试 Scheduler URL；生产使用
+  `SIM_ENV=production`、生产镜像与生产 Scheduler URL。可用显式环境变量覆盖默认值，
+  但测试与生产的数据库、namespace、Pool 名称和对象存储 bucket/prefix 必须保持隔离。
 - Worker 镜像构建入口为仓库根目录 `Dockerfile.worker`；镜像不包含 Kubernetes client、
   数据库驱动或 PVC 依赖。
 
@@ -209,7 +218,7 @@ CaseRun 时长分布、冷/热启动比例、运行时长、故障注入比例�
 FastAPI + Pydantic v2 + PostgreSQL 15（索引/调度状态/预聚合，生产强制；
 SQLite 仅用于便携开发测试，PostgreSQL CI 集成测试覆盖生产语义）
 + 文件系统（不可变版本文件为场景/Set 事实源，DB 存 uri+checksum）
-+ 可插拔 Executor（Local 起步，K8sPool 生产主路径，K8sJob 兜底）
++ 可插拔 Executor（Local 起步，K8sPool 生产主路径；每 Pod 默认单 slot）
 + DB SKIP LOCKED 派发（MQ 可选加速，outbox+幂等，永不作为状态源）
 + 调度单 leader、状态全在 DB、重启可恢复 + case_run/case_result 月分区
 + 预聚合（task_summary/task_metric_agg）+ 游标分页适配 10万~30万规模。

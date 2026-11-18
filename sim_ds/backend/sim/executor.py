@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -21,6 +22,7 @@ from backend.sim.results import ResultService
 class LocalExecutor:
     name = "local"
     supports_pause = True
+    dispatch_mode = "push"
 
     def __init__(self, db: Database, results: ResultService, settings: Settings) -> None:
         self.db = db
@@ -34,6 +36,18 @@ class LocalExecutor:
         task = asyncio.create_task(self._run(case))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+
+    async def start(self) -> None:
+        return
+
+    async def close(self) -> None:
+        for task in list(self.tasks):
+            task.cancel()
+        for process in list(self.processes.values()):
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
 
     async def pause(self, case_run_id: str) -> bool:
         return self._signal(case_run_id, signal.SIGSTOP)

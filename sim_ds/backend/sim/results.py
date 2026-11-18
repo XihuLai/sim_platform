@@ -156,7 +156,8 @@ class ResultService(ResultAggregateMixin):
         cutoff = utcnow() - timedelta(seconds=self.heartbeat_timeout_sec)
         rows = await self.db.fetch_all(
             "SELECT id, task_id, attempt, status, started_at FROM case_run "
-            "WHERE status IN ('running','paused') AND (heartbeat_at IS NULL OR heartbeat_at < :cutoff) LIMIT 200",
+            "WHERE status IN ('scheduled','running','paused') "
+            "AND (heartbeat_at IS NULL OR heartbeat_at < :cutoff) LIMIT 200",
             {"cutoff": cutoff},
         )
         lost = 0
@@ -176,7 +177,11 @@ class ResultService(ResultAggregateMixin):
     async def _lose(self, row: dict[str, Any], reason: str, runtime: RuntimeConfig) -> bool:
         async with self.db.session() as session:
             case = await self._case_for_update(session, row["id"])
-            if case is None or case["attempt"] != row["attempt"] or case["status"] not in {"running", "paused"}:
+            if (
+                case is None
+                or case["attempt"] != row["attempt"]
+                or case["status"] not in {"scheduled", "running", "paused"}
+            ):
                 return False
             retry = retry_allowed(reason, case["attempt"], runtime.retry.max, runtime.retry.on)
             if retry:
@@ -278,4 +283,3 @@ class ResultService(ResultAggregateMixin):
             if elapsed > timeout_sec:
                 return "timeout"
         return "worker_lost"
-

@@ -187,7 +187,9 @@ class ScenarioService(ScenarioSupport):
         uri = scenario_uri(scenario_id, 1)
         await self._insert_pending(scenario_id, document, checksum, uri, expected=0, principal=principal)
         published = self.store.publish(uri, document)
-        await self._finish_publish(scenario_id, 1, published.checksum, principal, expected=0)
+        await self._finish_publish(
+            scenario_id, 1, published.uri, published.checksum, principal, expected=0
+        )
         return await self.get(scenario_id, principal, 1)
 
     async def update(
@@ -226,7 +228,9 @@ class ScenarioService(ScenarioSupport):
         uri = scenario_uri(scenario_id, version)
         await self._insert_pending(scenario_id, document, checksum, uri, expected=current, principal=principal)
         published = self.store.publish(uri, document)
-        await self._finish_publish(scenario_id, version, published.checksum, principal, expected=current)
+        await self._finish_publish(
+            scenario_id, version, published.uri, published.checksum, principal, expected=current
+        )
         return await self.get(scenario_id, principal, version)
 
     async def copy(
@@ -363,17 +367,25 @@ class ScenarioService(ScenarioSupport):
         )
 
     async def _finish_publish(
-        self, scenario_id: str, version: int, checksum: str, principal: Principal, *, expected: int
+        self,
+        scenario_id: str,
+        version: int,
+        uri: str,
+        checksum: str,
+        principal: Principal,
+        *,
+        expected: int,
     ) -> None:
         async with self.db.session() as session:
             await session.execute(
                 text(
                     """
-                    UPDATE scenario_version SET publish_state='published', file_checksum=:sha
+                    UPDATE scenario_version SET publish_state='published', file_uri=:uri,
+                      file_checksum=:sha
                     WHERE scenario_id=:sid AND version=:ver
                     """
                 ),
-                {"sid": scenario_id, "ver": version, "sha": checksum},
+                {"sid": scenario_id, "ver": version, "uri": uri, "sha": checksum},
             )
             result = await session.execute(
                 text(
@@ -385,7 +397,7 @@ class ScenarioService(ScenarioSupport):
                 {
                     "sid": scenario_id,
                     "ver": version,
-                    "uri": scenario_uri(scenario_id, version),
+                    "uri": uri,
                     "sha": checksum,
                     "expected": expected,
                 },

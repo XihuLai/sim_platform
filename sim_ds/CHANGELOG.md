@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## Round 031 — K8s 执行器与 OSS Worker 基线 — 2026-11-17
+- [contract] 确认 Worker 通过 S3-compatible SDK 直读场景/Binary、上传结果；不挂载 PVC、不直连 DB；结果回调 Scheduler 落库
+- [feat] 增加可插拔 Executor 协议、K8sPoolExecutor（Deployment + HTTP outbox claim）和 K8sJobExecutor（每 attempt 一个 Job）
+- [feat] 增加 Worker claim/start/heartbeat/result API、S3 FileStore 和 Worker 进程；Binary 使用 s3:// URI 与强制 SHA-256
+- [deploy] 新增可选依赖 kubernetes Python client 与 boto3；LocalExecutor 默认不需要初始化 K8s
+- [pending] 目标集群部署/联调待提供 namespace、镜像仓库、Scheduler URL、RBAC、对象存储 endpoint/bucket 与网络策略
+
 ## Round 030 — Web 发起 3 cases 全流程验收 — 2026-11-17
 - [test] norm_sim 通过前端创建/冻结 3 成员场景集「前端3Case测试集」v2，并从「发起仿真」提交 mock_case 任务
 - [test] Executor 对 3 个 case 分别调用 test_mock_run_case.py，任务 tsk_20261117130320e1db9d：3/3 执行成功、3/3 指标通过

@@ -13,11 +13,11 @@ Domain services
   SetService      ── SetSupport      ── snapshot builder/sharding
   MetricService
   TaskService     ── TaskReadMixin
-  Expander / Scheduler / LocalExecutor / ResultService + AggregateMixin
+  Expander / Scheduler / Executor(Local | K8sPool | K8sJob) / WorkerService / ResultService
   PlaybackService ── synth payloads + FileStore
         │
 PostgreSQL 15+ (raw SQL, JSONB, SKIP LOCKED, partitions, preaggregates)
-File system (Scenario/Set JSON, playback index/chunks, outputs)
+FileStore (local development) | S3-compatible object store (K8s worker inputs/outputs)
 ```
 
 - 文件是 Scenario、Set 和 Metric 实例的**内容事实源**；DB 保存版本意图、当前指针、
@@ -25,6 +25,8 @@ File system (Scenario/Set JSON, playback index/chunks, outputs)
 - DB 行只有 `publish_state=published` 才能被业务读取；`pending/failed/unavailable`
   不允许被任务引用。
 - 后端所有路径避免长 DB 事务内做文件 I/O。
+- K8s Worker 使用 boto3 兼容 SDK 下载 `s3://` 场景/Binary、校验 Binary SHA-256、
+  上传 Case 输出，再经 `/api/internal/worker/*` 回调；Worker 无 DB 凭据且不挂载 PVC。
 
 ## 2. 版本发布与恢复
 
@@ -77,6 +79,10 @@ metric_category (固定 5)
 ### 执行与结果
 - `LocalExecutor` 使用独立进程组启动 `python -m backend.sim.engine_cli`，环境变量与
   args 模板变量走白名单。
+- `K8sPoolExecutor` 创建/更新常驻 Deployment，Worker 通过带认证的 Scheduler API
+  原子领取 DB outbox dispatch 项；`K8sJobExecutor` 每个 CaseRun attempt 创建独立 Job。
+- 两种远程执行器都调用相同的 Worker；终态事实通过 Scheduler API 回写，状态机和聚合
+  仍在服务端，Job Worker 不支持 pause，Pool Worker 通过心跳返回的控制状态暂停/恢复。
 - 心跳每 10s；超时杀进程组。`ResultService` 以 `(case_run_id, attempt, report_id)`
   处理重复/过期报告。
 - 失败按 RuntimeConfig.retry 重排；每次状态迁移同时更新 `task_summary`、
@@ -116,6 +122,6 @@ video SVG / pointcloud / timeseries 渲染。所有页面具备空/加载/错误
 
 ## 8. 已知取舍
 
-- LocalExecutor 为单机起步实现；生产 K8sPool/K8sJob 可在 `Executor` 接口后替换。
+- K8s 执行器与 Worker 已有首版实现；目标集群镜像、RBAC、网络策略和资源规格尚需部署联调。
 - mcap/bag 解析适配器目前用 manifest 元数据桩，chunk 数据为确定性合成数据。
 - 归档查询需可选依赖 `pyarrow`；未安装时返回 503，不影响主链路。

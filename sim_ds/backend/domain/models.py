@@ -177,6 +177,8 @@ class RetryPolicy(BaseModel):
 class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     binary_id: str
+    binary_uri: str | None = None
+    binary_checksum: str | None = None
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     resource: ResourceSpec = Field(default_factory=ResourceSpec)
@@ -199,6 +201,30 @@ class RuntimeConfig(BaseModel):
         if unknown:
             raise ValueError(f"env key 不在白名单：{unknown}")
         return env
+
+    @field_validator("binary_uri")
+    @classmethod
+    def safe_binary_uri(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("s3://"):
+            raise ValueError("binary_uri must use the s3:// scheme")
+        return value
+
+    @field_validator("binary_checksum")
+    @classmethod
+    def valid_binary_checksum(cls, value: str | None) -> str | None:
+        if value is not None and (
+            len(value) != 71
+            or not value.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in value[7:])
+        ):
+            raise ValueError("binary_checksum must be sha256:<64 lowercase hex characters>")
+        return value
+
+    @model_validator(mode="after")
+    def require_binary_checksum(self) -> RuntimeConfig:
+        if self.binary_uri and not self.binary_checksum:
+            raise ValueError("binary_checksum is required when binary_uri is set")
+        return self
 
 
 class TaskBatch(BaseModel):

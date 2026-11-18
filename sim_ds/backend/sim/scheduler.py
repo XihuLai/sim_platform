@@ -12,7 +12,7 @@ from sqlalchemy import text
 from backend.scenario.common import loads
 from backend.shared.config import Settings
 from backend.shared.db import Database, affected, dumps
-from backend.sim.executor import LocalExecutor
+from backend.sim.executor_protocol import Executor
 from backend.sim.expander import Expander
 from backend.sim.results import ResultService
 
@@ -27,7 +27,7 @@ class Scheduler:
         settings: Settings,
         results: ResultService,
         expander: Expander,
-        executor: LocalExecutor,
+        executor: Executor,
     ) -> None:
         self.db = db
         self.settings = settings
@@ -43,6 +43,7 @@ class Scheduler:
         if not self.db.is_postgres:
             raise RuntimeError("scheduler requires PostgreSQL; SQLite is development-only")
         await self._ensure_worker()
+        await self.executor.start()
         self._loop_task = asyncio.create_task(self.run_forever())
 
     async def stop(self) -> None:
@@ -55,11 +56,7 @@ class Scheduler:
                 await self._lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": ADVISORY_KEY})
                 await self._lock_conn.close()
             self._lock_conn = None
-        for task in list(self.executor.tasks):
-            task.cancel()
-        for process in list(self.executor.processes.values()):
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
+        await self.executor.close()
 
     async def run_forever(self) -> None:
         last_reconcile = 0.0
@@ -95,16 +92,29 @@ class Scheduler:
         return self._leader
 
     async def _ensure_worker(self) -> None:
-        capacity = dumps(
-            {"cpu": self.settings.worker_cpu, "mem_gb": self.settings.worker_mem_gb, "gpu": self.settings.worker_gpu}
-        )
+        if self.executor.name == "k8s_pool":
+            multiplier = self.settings.k8s_pool_replicas * self.settings.k8s_worker_slots
+            capacity_values = {
+                "cpu": self.settings.k8s_slot_cpu * multiplier,
+                "mem_gb": self.settings.k8s_slot_mem_gb * multiplier,
+                "gpu": self.settings.k8s_slot_gpu * multiplier,
+                "slots": multiplier,
+            }
+        else:
+            capacity_values = {
+                "cpu": self.settings.worker_cpu,
+                "mem_gb": self.settings.worker_mem_gb,
+                "gpu": self.settings.worker_gpu,
+            }
+        capacity = dumps(capacity_values)
         await self.db.execute(
             """
             INSERT INTO worker(id,executor_type,status,capacity,used,heartbeat_at,started_at)
-            VALUES (:id,'local','online',CAST(:capacity AS JSONB),'{}',now(),now())
-            ON CONFLICT (id) DO UPDATE SET capacity=EXCLUDED.capacity, status='online', heartbeat_at=now()
+            VALUES (:id,:executor,'online',CAST(:capacity AS JSONB),'{}',now(),now())
+            ON CONFLICT (id) DO UPDATE SET executor_type=EXCLUDED.executor_type,
+              capacity=EXCLUDED.capacity, status='online', heartbeat_at=now()
             """,
-            {"id": self.settings.worker_id, "capacity": capacity},
+            {"id": self.settings.worker_id, "executor": self.executor.name, "capacity": capacity},
         )
 
     # ----------------------------------------------------------- controls
@@ -147,6 +157,8 @@ class Scheduler:
     async def _pause(self, task: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         if task["status"] in {"expanding", "succeeded", "failed", "canceled"}:
             return "REJECTED_STATE", {"status": task["status"]}
+        if not self.executor.supports_pause:
+            return "REJECTED_EXECUTOR_CAPABILITY", {"executor": self.executor.name}
         running = await self.db.fetch_all(
             "SELECT id, status FROM case_run WHERE task_id=:tid AND status IN ('scheduled','running')",
             {"tid": task["id"]},
@@ -211,6 +223,33 @@ class Scheduler:
 
     async def _reserve(self, session: Any, row: dict[str, Any]) -> bool:
         resource = loads(row["resource_req"]) or {}
+        if self.executor.name == "k8s_pool":
+            worker = await session.execute(
+                text("SELECT capacity FROM worker WHERE id=:worker"),
+                {"worker": self.settings.worker_id},
+            )
+            worker_row = worker.mappings().first()
+            usage = await session.execute(
+                text(
+                    """
+                    SELECT COUNT(*) AS slots, COALESCE(SUM(cpu),0) AS cpu,
+                           COALESCE(SUM(mem_gb),0) AS mem_gb, COALESCE(SUM(gpu),0) AS gpu
+                    FROM resource_reservation
+                    WHERE worker_id=:worker AND released_at IS NULL
+                    """
+                ),
+                {"worker": self.settings.worker_id},
+            )
+            current = usage.mappings().one()
+            capacity = loads(worker_row["capacity"]) if worker_row else {}
+            if (
+                current["slots"] + 1 > int(capacity.get("slots", 0))
+                or current["cpu"] + int(resource.get("cpu", 0)) > int(capacity.get("cpu", 0))
+                or current["mem_gb"] + int(resource.get("mem_gb", 0))
+                > int(capacity.get("mem_gb", 0))
+                or current["gpu"] + int(resource.get("gpu", 0)) > int(capacity.get("gpu", 0))
+            ):
+                return False
         moved = await session.execute(
             text(
                 "UPDATE case_run SET status='scheduled', worker_id=:worker, heartbeat_at=now() "
@@ -253,6 +292,8 @@ class Scheduler:
 
     # ------------------------------------------------------------ dispatch
     async def dispatch_outbox(self) -> int:
+        if self.executor.dispatch_mode == "pull":
+            return 0
         rows = await self.db.fetch_all(
             """
             SELECT o.id AS outbox_id, c.id, c.task_id, c.scenario_id, c.scenario_version, c.attempt

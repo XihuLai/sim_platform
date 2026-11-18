@@ -29,6 +29,8 @@ export function TaskSubmit() {
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("5");
   const [binary, setBinary] = useState("log-resim");
+  const [binaryUri, setBinaryUri] = useState("");
+  const [binaryChecksum, setBinaryChecksum] = useState("");
   const [engineOpen, setEngineOpen] = useState(false);
   const engines = [
     { value: "log-resim", label: "内置确定性引擎" },
@@ -57,6 +59,9 @@ export function TaskSubmit() {
         priority: Number(priority),
         runtime: {
           binary_id: binary,
+          ...(binaryUri
+            ? { binary_uri: binaryUri, binary_checksum: binaryChecksum }
+            : {}),
           args: [],
           env: parseEnv(envText),
           resource: { cpu: 1, mem_gb: 1, gpu: 0 },
@@ -94,6 +99,18 @@ export function TaskSubmit() {
                 ))}
               </select>
             </label>
+            <TextField
+              label="Worker Binary OSS URI（K8s 执行必填，s3://bucket/key）"
+              value={binaryUri}
+              onChange={setBinaryUri}
+            />
+            {binaryUri && (
+              <TextField
+                label="Binary SHA-256（sha256: 后接 64 位小写十六进制）"
+                value={binaryChecksum}
+                onChange={setBinaryChecksum}
+              />
+            )}
             <TextField label="任务名称" value={name} onChange={setName} />
             <div className="row">
               <TextField label="优先级 0-9" value={priority} onChange={setPriority} type="number" />

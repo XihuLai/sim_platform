@@ -92,6 +92,18 @@ Protocol:
 | K8sPoolExecutor | worker 内 SIGSTOP 子进程 | 杀进程树 + 回写 | 生产主路径 |
 | K8sJobExecutor | 不支持原地暂停 | kubectl delete job | 仅强隔离兜底 |
 
+远程 Worker 部署约定：
+- K8sPoolExecutor 管理常驻 Worker Deployment；Worker 经 Scheduler 的 Bearer Token API
+  claim 当前 attempt 的 DB outbox dispatch 项，不直连 DB。K8sJobExecutor 每个 attempt
+  创建一个 Job，并把不可变 Case 描述作为容器启动配置传给 Worker。
+- Scenario 版本、Binary 和输出均在 S3-compatible object store；Worker 使用 SDK 下载
+  Scenario/Binary、校验 SHA-256、上传输出，不挂载 PVC。Binary URI 使用
+  `RuntimeConfig.binary_uri=s3://bucket/key`，并要求 `binary_checksum`。
+- Worker 通过 start/heartbeat/result API 上报事实；Scheduler 校验
+  `(case_run_id, attempt, worker_id)` 并在事务中变更 CaseRun/聚合。Worker 无 DB 凭据。
+- Worker callback Token、S3 凭据和镜像拉取凭据通过 Secret 注入。Scheduler 的
+  Kubernetes ServiceAccount/RBAC 与 Worker ServiceAccount 权限分离。
+
 不变量：
 1. CaseRun 状态只由 Scheduler 状态转换入口在 DB 变更。Worker 事实带 attempt 和
    worker_id；终态结果另带 report_id。Worker 通过 Scheduler 报告入口提交，不直接写 DB；

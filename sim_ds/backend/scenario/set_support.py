@@ -52,11 +52,16 @@ class SetSupport:
         async with self.db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE scenario_set_version SET publish_state='published', frozen_at="
+                    "UPDATE scenario_set_version SET publish_state='published', snapshot_uri=:uri, frozen_at="
                     "CASE WHEN :frozen THEN COALESCE(frozen_at, now()) ELSE frozen_at END "
                     "WHERE set_id=:sid AND version=:ver"
                 ),
-                {"sid": row["set_id"], "ver": row["version"], "frozen": frozen},
+                {
+                    "sid": row["set_id"],
+                    "ver": row["version"],
+                    "frozen": frozen,
+                    "uri": self.store.canonical_uri(row["snapshot_uri"]),
+                },
             )
             await session.execute(
                 text(

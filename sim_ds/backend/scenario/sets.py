@@ -373,10 +373,15 @@ class SetService(SetSupport):
         async with self.db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE scenario_set_version SET publish_state='published', frozen_at="
+                    "UPDATE scenario_set_version SET publish_state='published', snapshot_uri=:uri, frozen_at="
                     "CASE WHEN :frozen THEN now() ELSE frozen_at END WHERE set_id=:sid AND version=:ver"
                 ),
-                {"sid": set_id, "ver": version, "frozen": frozen},
+                {
+                    "sid": set_id,
+                    "ver": version,
+                    "frozen": frozen,
+                    "uri": self.store.canonical_uri(snapshot["snapshot_uri"]),
+                },
             )
             result = await session.execute(
                 text(

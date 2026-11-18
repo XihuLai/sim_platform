@@ -26,8 +26,12 @@ dev = [
   "ruff>=0.8,<1",
   "mypy>=1.13,<2",
   "types-jsonschema>=4.23,<5",
+  "kubernetes>=31,<34",
+  "boto3>=1.35,<2",
 ]
 archive = ["pyarrow>=18,<20"]
+k8s = ["kubernetes>=31,<34", "boto3>=1.35,<2"]
+worker = ["boto3>=1.35,<2"]
 
 [tool.ruff]
 line-length = 100

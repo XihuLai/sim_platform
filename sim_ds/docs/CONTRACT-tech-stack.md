@@ -6,7 +6,7 @@
 
 ## 0. 总则
 
-1. 事实源唯一性：文件系统是场景定义事实源；DB 是索引与调度状态事实源；
+1. 事实源唯一性：文件系统/对象存储是场景定义事实源；DB 是索引与调度状态事实源；
    MQ 永不作为状态源。
 2. 依赖最小化：新增运行时依赖必须在 CHANGELOG 记录版本/理由/替代方案，
    经 Architect 批准。
@@ -46,7 +46,7 @@
 | 开发降级 | SQLite | 仅本地开发/CI | 禁止作为调度事实源 |
 | 缓存 | 首轮不引入 Redis | — | 禁止当状态源/队列事实源 |
 
-文件布局（冻结）：
+文件布局（冻结；S3-compatible backend 使用相同 key 布局并存为 `s3://bucket/key`）：
 /data/scenarios/{id}/v{n}.json
 /data/sets/{id}/v{n}.json            （>2000 成员分片：v{n}.meta.json + v{n}.members.{k}.json）
 /data/sources/{id}/index.json + chunks/
@@ -82,8 +82,40 @@ Executor 抽象（可插拔）：
 | 实现 | 定位 | 暂停 | 取消 |
 |---|---|---|---|
 | LocalExecutor | 开发/CI/单机 | SIGSTOP 进程组；仅同进程存活时保留现场 | SIGTERM→SIGKILL |
-| K8sPoolExecutor | 生产主路径（1 task:N case:M pod，M<<N，每 pod 多 slot） | worker 内 SIGSTOP 子进程；Pod/Worker 丢失后从头重跑 | 杀进程树 + 回写 |
-| K8sJobExecutor | 仅强隔离兜底 | 不支持原地暂停 | kubectl delete job |
+| K8sPoolExecutor | 生产主路径（常驻 Deployment，worker HTTP claim DB outbox；每 Pod 多 slot） | worker 内 SIGSTOP 子进程；Pod/Worker 丢失后从头重跑 | worker 轮询 Scheduler 控制状态并杀进程树 |
+| K8sJobExecutor | 仅强隔离兜底（每 CaseRun/attempt 一个 Job） | 不支持原地暂停 | 删除对应 Job |
+
+### K8s Worker 数据与报告协议
+- K8s Worker 不挂载 PVC/NFS，不连接 PostgreSQL；通过 S3-compatible SDK 直接下载
+  `scenario_uri`、`RuntimeConfig.binary_uri`，两者均为 `s3://bucket/key`。
+- `binary_uri` 必须带 `binary_checksum=sha256:<64 lowercase hex>`；下载后校验，
+  并将 URI 与 checksum 纳入 task fingerprint。
+- 场景版本通过同一对象存储适配器不可变发布；DB 的 `file_uri` 保存 `s3://` URI。
+  Set 快照/分片使用相同 key 布局；本地 FileStore 仍用于开发和 CI。
+- Worker 将 Case 输出文件通过 SDK 上传到 `s3://bucket/{prefix}/outputs/{task_id}/
+  {case_run_id}/attempt-{attempt}/`，随后回调 Scheduler 报告 `output_uri`、指标与终态。
+  上传失败不得报告成功；同一 `report_id` 可安全重试。
+- Scheduler 提供 `/api/internal/worker/{claim,start,heartbeat,result}` Bearer Token API；
+  Token 仅放在 K8s Secret。Worker 只能提交执行事实，状态迁移和聚合仍由 Scheduler/DB
+  事务完成。
+- Pool Worker 通过 claim API 原子领取 `outbox` 中当前 attempt 的 dispatch 项；Job Worker
+  由 K8sJobExecutor 注入单次 CaseRun 描述。Worker 崩溃后由心跳超时回收；过期 attempt
+  的消息/报告不得覆盖新 attempt。
+- K8s Scheduler 需要在指定 namespace 创建/读取/删除 Job 与 Deployment 的 RBAC；
+  Worker ServiceAccount 不需要 Kubernetes API 权限。Worker 通过网络访问 Scheduler、
+  对象存储；不创建数据卷。镜像使用非 root 用户、只读最小依赖和显式 CPU/内存/GPU
+  requests/limits。目标集群的网络策略、Registry 凭证和资源值属于部署参数。
+- 配置项：`SIM_EXECUTOR=local|k8s_pool|k8s_job`；对象存储使用
+  `SIM_OBJECT_STORE_BUCKET/PREFIX/ENDPOINT_URL/REGION`，凭据来自 boto3 默认凭据链或
+  `SIM_OBJECT_STORE_ACCESS_KEY/SECRET_KEY`；Worker API 地址使用含 `/api` 的
+  `SIM_WORKER_API_URL`。K8s 资源由 `SIM_K8S_NAMESPACE/WORKER_IMAGE/POOL_NAME/
+  POOL_REPLICAS/WORKER_SLOTS/SLOT_CPU/SLOT_MEM_GB/SLOT_GPU/SERVICE_ACCOUNT/IMAGE_PULL_SECRET` 配置；
+  `SIM_WORKER_TOKEN` 与对象存储密钥通过 `SIM_K8S_WORKER_SECRET_NAME` 指定的 Secret 注入。
+  `SIM_K8S_SLOT_CPU/MEM_GB/GPU` 是每个并发 slot 的资源；Pool Pod requests/limits 与 Scheduler
+  容量按 `WORKER_SLOTS` 聚合，副本总容量再乘 `POOL_REPLICAS`。K8s CaseRun 的 CPU 和内存请求
+  至少为 1，以确保调度器预留与 Pod 资源一致。
+- Worker 镜像构建入口为仓库根目录 `Dockerfile.worker`；镜像不包含 Kubernetes client、
+  数据库驱动或 PVC 依赖。
 
 Executor 不变量（任何实现必须满足）：
 1. CaseRun 状态/结果只由 Scheduler 状态转换入口提交到 DB；Executor/Worker 上报带
@@ -121,6 +153,8 @@ K8s 边界：
 | 每 case 一 Job 作批量主路径 | ❌ |
 | 运行时 CREATE TABLE / schema 漂移 | ❌ |
 | Ray/Volcano/Argo 等 | ⚠️ 需批准，且不得绕开 Executor 接口与 DB 状态机 |
+| boto3（S3-compatible object SDK） | K8s Worker/对象存储可选依赖；不配置对象存储时本地路径不引入运行时负担 |
+| kubernetes Python client | K8s Scheduler 可选依赖；LocalExecutor 不导入或初始化客户端 |
 
 ## 6. 非功能指标
 

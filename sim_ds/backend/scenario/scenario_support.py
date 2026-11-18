@@ -262,17 +262,27 @@ class ScenarioSupport:
         async with self.db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE scenario_version SET publish_state='published', file_checksum=:sha "
+                    "UPDATE scenario_version SET publish_state='published', file_uri=:uri, file_checksum=:sha "
                     "WHERE scenario_id=:sid AND version=:ver"
                 ),
-                {"sid": scenario_id, "ver": version, "sha": checksum},
+                {
+                    "sid": scenario_id,
+                    "ver": version,
+                    "uri": self.store.canonical_uri(scenario_uri(scenario_id, version)),
+                    "sha": checksum,
+                },
             )
             await session.execute(
                 text(
                     "UPDATE scenario SET current_version=GREATEST(current_version,:ver), file_uri=:uri, "
                     "file_checksum=:sha WHERE id=:sid"
                 ),
-                {"sid": scenario_id, "ver": version, "uri": scenario_uri(scenario_id, version), "sha": checksum},
+                {
+                    "sid": scenario_id,
+                    "ver": version,
+                    "uri": self.store.canonical_uri(scenario_uri(scenario_id, version)),
+                    "sha": checksum,
+                },
             )
             await session.commit()
 

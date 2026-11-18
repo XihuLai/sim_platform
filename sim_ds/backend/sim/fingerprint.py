@@ -86,11 +86,15 @@ async def _metric_configs(session: AsyncSession, set_id: str, set_version: int) 
 
 
 def engine_digest(runtime: RuntimeConfig) -> str:
+    if runtime.binary_uri:
+        return sha256_text(
+            "artifact:" + runtime.binary_uri + ":" + str(runtime.binary_checksum)
+        )
     return sha256_text("artifact:" + runtime.binary_id)
 
 
 def _canonical_runtime(runtime: RuntimeConfig) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "binary_id": runtime.binary_id,
         "args": runtime.args,
         "env": {key: runtime.env[key] for key in sorted(runtime.env)},
@@ -98,4 +102,7 @@ def _canonical_runtime(runtime: RuntimeConfig) -> dict[str, Any]:
         "timeout_sec": runtime.timeout_sec,
         "retry": runtime.retry.model_dump(),
     }
-
+    if runtime.binary_uri:
+        result["binary_uri"] = runtime.binary_uri
+        result["binary_checksum"] = runtime.binary_checksum
+    return result

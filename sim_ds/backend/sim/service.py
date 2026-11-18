@@ -11,9 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.models import SimTaskCreate
+from backend.scenario.common import loads
 from backend.scenario.sets import SetService
 from backend.shared.auth import Principal, audit
-from backend.shared.canonical import sha256_text, utcnow
+from backend.shared.canonical import sha256_bytes, sha256_text, utcnow
 from backend.shared.db import Database, dumps
 from backend.shared.errors import AppError, conflict, not_found
 from backend.shared.files import FileStore
@@ -23,15 +24,35 @@ from backend.sim.read_models import TaskReadMixin
 
 class TaskService(TaskReadMixin):
     def __init__(
-        self, db: Database, sets: SetService, sync_limit: int = 500, store: FileStore | None = None
+        self,
+        db: Database,
+        sets: SetService,
+        sync_limit: int = 500,
+        store: FileStore | None = None,
+        require_binary_uri: bool = False,
     ) -> None:
         self.db = db
         self.sets = sets
         self.sync_limit = sync_limit
         self.store = store
+        self.require_binary_uri = require_binary_uri
 
     # ------------------------------------------------------------- submit
     async def submit(self, payload: SimTaskCreate, principal: Principal) -> dict[str, Any]:
+        if self.require_binary_uri and not payload.runtime.binary_uri:
+            raise AppError(
+                "BINARY_URI_REQUIRED",
+                "Kubernetes 执行需要提供 s3:// Binary URI 和 SHA-256",
+                status=422,
+            )
+        if self.require_binary_uri and (
+            payload.runtime.resource.cpu < 1 or payload.runtime.resource.mem_gb < 1
+        ):
+            raise AppError(
+                "INVALID_K8S_RESOURCE",
+                "Kubernetes CaseRun 的 CPU 和内存资源必须至少为 1",
+                status=422,
+            )
         project = self._scope_project(payload.project or principal.project, principal)
         if payload.priority > principal.max_priority:
             raise AppError(
@@ -54,6 +75,8 @@ class TaskService(TaskReadMixin):
             expected = min(expected, payload.batch.max_cases)
         if expected <= 0:
             raise AppError("EMPTY_SET", "空场景集不能提交仿真任务", status=422)
+        if self.require_binary_uri:
+            await self._publish_scenarios_to_object_store(payload.set_id, set_version, expected)
         if principal.max_daily_cases is not None:
             used_row = await self.db.fetch_one(
                 "SELECT COALESCE(SUM(total_cases),0) AS used FROM sim_task "
@@ -102,6 +125,77 @@ class TaskService(TaskReadMixin):
         result = await self.get(task_id, principal)
         result["deduplicated"] = False
         return result
+
+    async def _publish_scenarios_to_object_store(
+        self, set_id: str, set_version: int, expected: int
+    ) -> None:
+        if self.store is None or not self.store.is_remote:
+            raise AppError(
+                "OBJECT_STORE_REQUIRED",
+                "Kubernetes 执行需要配置 S3-compatible 对象存储",
+                status=503,
+            )
+        rows = await self.db.fetch_all(
+            """
+            SELECT v.scenario_id, v.version, v.file_uri, v.file_checksum
+            FROM scenario_set_member m
+            JOIN scenario_version v
+              ON v.scenario_id=m.scenario_id AND v.version=m.scenario_version
+            WHERE m.set_id=:sid AND m.set_version=:ver
+            ORDER BY m.sort_order, m.scenario_id
+            LIMIT :limit
+            """,
+            {"sid": set_id, "ver": set_version, "limit": expected},
+        )
+        for row in rows:
+            if str(row["file_uri"]).startswith("s3://"):
+                continue
+            body = self.store.read_bytes(self.store.resolve(row["file_uri"]))
+            if sha256_bytes(body) != row["file_checksum"]:
+                raise AppError(
+                    "SCENARIO_CHECKSUM_MISMATCH",
+                    "场景版本本地文件校验失败，拒绝上传到对象存储",
+                    status=409,
+                    detail={"scenario_id": row["scenario_id"], "version": row["version"]},
+                )
+            scenario = loads(body)
+            source = scenario.get("source") or {}
+            log_uri = str(source.get("log_uri") or "")
+            if log_uri and not log_uri.startswith("s3://"):
+                raise AppError(
+                    "SCENARIO_INPUT_NOT_PUBLISHED",
+                    "Kubernetes Worker 所需的场景日志必须先发布到 s3://",
+                    status=409,
+                    detail={"scenario_id": row["scenario_id"], "version": row["version"]},
+                )
+            published = self.store.publish(row["file_uri"], scenario)
+            if published.checksum != row["file_checksum"]:
+                raise AppError(
+                    "SCENARIO_CHECKSUM_MISMATCH",
+                    "场景版本对象存储校验失败",
+                    status=409,
+                    detail={"scenario_id": row["scenario_id"], "version": row["version"]},
+                )
+            async with self.db.session() as session:
+                await session.execute(
+                    text(
+                        "UPDATE scenario_version SET file_uri=:uri "
+                        "WHERE scenario_id=:sid AND version=:ver AND file_checksum=:sha"
+                    ),
+                    {
+                        "uri": published.uri,
+                        "sid": row["scenario_id"],
+                        "ver": row["version"],
+                        "sha": row["file_checksum"],
+                    },
+                )
+                await session.execute(
+                    text(
+                        "UPDATE scenario SET file_uri=:uri WHERE id=:sid AND current_version=:ver"
+                    ),
+                    {"uri": published.uri, "sid": row["scenario_id"], "ver": row["version"]},
+                )
+                await session.commit()
 
     @staticmethod
     def _scope_project(project: str, principal: Principal) -> str:

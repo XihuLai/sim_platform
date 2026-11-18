@@ -25,6 +25,8 @@ class PublishedFile:
 
 
 class FileStore:
+    is_remote = False
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
@@ -40,6 +42,9 @@ class FileStore:
 
     def relative(self, path: Path) -> str:
         return str(path.resolve().relative_to(self.root.resolve()))
+
+    def canonical_uri(self, uri: str) -> str:
+        return uri
 
     def read_bytes(self, path: Path) -> bytes:
         try:
